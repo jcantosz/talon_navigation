@@ -100,9 +100,23 @@ class MenuLabelsTests(unittest.TestCase):
             cron=self.cron,
             ui=self.ui,
         )
-        spec = importlib.util.spec_from_file_location("menu_labels_under_test", SOURCE)
+        root_package = types.ModuleType("talon_navigation_under_test")
+        root_package.__path__ = [str(SOURCE.parents[1])]
+        package = types.ModuleType("talon_navigation_under_test.menus")
+        package.__path__ = [str(SOURCE.parent)]
+        spec = importlib.util.spec_from_file_location(
+            "talon_navigation_under_test.menus.menu_labels", SOURCE
+        )
         self.module = importlib.util.module_from_spec(spec)
-        with patch.dict(sys.modules, {"talon": talon}):
+        with patch.dict(
+            sys.modules,
+            {
+                "talon": talon,
+                root_package.__name__: root_package,
+                package.__name__: package,
+                spec.name: self.module,
+            },
+        ):
             spec.loader.exec_module(self.module)
         self.actions = self.module.MenuLabelsActions
         self.module.actions.key = Mock()
@@ -123,13 +137,13 @@ class MenuLabelsTests(unittest.TestCase):
                 self.actions.menu_labels_back()
                 self.assertEqual(self.visible, [])
                 self.module.actions.key.assert_called_with("left")
-                self.module._update()
-                self.assertTrue(self.module._waiting)
+                self.module._session.update()
+                self.assertTrue(self.module._session.waiting)
                 self.menu = parent
-                self.module._update()
+                self.module._session.update()
                 self.assertEqual(self.visible, parent.children)
                 self.assertEqual(self.style, "names" if names else "numbers")
-                self.assertIsNone(self.module._back_parent)
+                self.assertIsNone(self.module._session.back_parent)
 
     def test_back_from_top_menu_relabels_menu_bar(self):
         self.prepare_back(self.bar)
@@ -137,10 +151,10 @@ class MenuLabelsTests(unittest.TestCase):
         self.actions.menu_labels_back()
         self.module.actions.key.assert_called_with("esc")
         self.menu = None
-        self.module._update()
+        self.module._session.update()
         self.assertEqual(self.visible, self.bar.children)
         self.assertEqual(self.style, "numbers")
-        self.assertIs(self.module._container, self.bar)
+        self.assertIs(self.module._session.container, self.bar)
 
     def test_back_at_bar_does_not_send_escape(self):
         self.actions.menu_labels_show()
@@ -153,10 +167,11 @@ class MenuLabelsTests(unittest.TestCase):
         self.prepare_back(self.bar)
         self.actions.menu_labels_show(False)
         self.actions.menu_labels_back()
+        session = self.module._session
         for _ in range(15):
-            self.module._update()
-        self.assertIsNone(self.module._job)
-        self.assertIsNone(self.module._back_parent)
+            session.update()
+        self.assertIsNone(session.job)
+        self.assertIsNone(session.back_parent)
         self.notify.assert_called_once_with(
             "Menu labels", "Unable to return to the parent menu."
         )
@@ -208,21 +223,21 @@ class MenuLabelsTests(unittest.TestCase):
         self.actions.menu_labels_show()
         self.assertEqual(self.visible, [self.file, self.edit])
         self.assertEqual(self.style, "names")
-        self.cron.interval.assert_called_once_with("100ms", self.module._update)
+        self.cron.interval.assert_called_once_with("100ms", self.module._session.update)
 
     def test_numbers_follow_multiple_delayed_submenus(self):
         self.actions.menu_labels_show(False)
         self.labels.select(1)
         self.assertEqual(self.visible, [])
-        self.module._update()
-        self.assertTrue(self.module._waiting)
+        self.module._session.update()
+        self.assertTrue(self.module._session.waiting)
         self.menu = self.submenu()
-        self.module._update()
+        self.module._session.update()
         self.assertEqual(self.visible, self.menu.children)
         self.assertEqual(self.style, "numbers")
         self.labels.select(1)
         self.menu = self.submenu("Recent file")
-        self.module._update()
+        self.module._session.update()
         self.assertEqual(self.visible, self.menu.children)
         self.assertEqual(self.style, "numbers")
         self.assertEqual(self.selected, [1, 1])
@@ -231,10 +246,10 @@ class MenuLabelsTests(unittest.TestCase):
         self.actions.menu_labels_show()
         self.labels.select("File")
         self.menu = self.submenu()
-        self.module._update()
+        self.module._session.update()
         self.labels.select("Open Recent")
         self.menu = self.submenu("Recent file")
-        self.module._update()
+        self.module._session.update()
         self.assertEqual(self.style, "names")
         self.assertEqual(self.visible, self.menu.children)
         self.assertEqual(self.selected, ["File", "Open Recent"])
@@ -267,21 +282,22 @@ class MenuLabelsTests(unittest.TestCase):
 
         self.native = activate
         self.actions.menu_labels_show(False)
+        session = self.module._session
         for number in (3, 8, 5):
             self.labels.select(number)
-            self.module._update()
+            session.update()
             self.assertEqual(self.style, "numbers")
         for _ in range(14):
-            self.module._update()
+            session.update()
         self.assertEqual(self.selected, [3, 8, 5])
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
         self.notify.assert_not_called()
 
     def test_existing_open_menu_is_used(self):
         self.menu = self.submenu()
         self.actions.menu_labels_show(False)
-        self.assertIs(self.module._container, self.menu)
+        self.assertIs(self.module._session.container, self.menu)
 
     def test_excludes_separators_disabled_and_non_menu_elements(self):
         good = Element("AXMenuItem", "Open")
@@ -299,60 +315,66 @@ class MenuLabelsTests(unittest.TestCase):
 
     def test_hide_clears_native_labels_before_removing_override(self):
         self.actions.menu_labels_show(False)
-        job = self.module._job
+        session = self.module._session
+        job = session.job
         self.labels.hide()
         self.assertEqual(self.visible, [])
         self.assertEqual(self.module.ctx.tags, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
         self.cron.cancel.assert_called_with(job)
 
     def test_leaf_selection_exits_without_relabeling_old_menu(self):
         self.menu = self.submenu("Leaf")
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.labels.select(1)
         self.menu = None
         for _ in range(15):
-            self.module._update()
+            session.update()
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
         self.notify.assert_not_called()
 
     def test_unchanged_menu_times_out_with_notification(self):
         self.menu = self.submenu()
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.labels.select(1)
         for _ in range(15):
-            self.module._update()
-        self.assertIsNone(self.module._job)
+            session.update()
+        self.assertIsNone(session.job)
         self.notify.assert_called_once_with(
             "Menu labels", "No new selectable submenu appeared."
         )
 
     def test_app_switch_cancels_pending_relabel(self):
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.labels.select(1)
         self.application.pid = 2
         self.menu = self.submenu()
-        self.module._update()
+        session.update()
         self.assertEqual(self.visible, [])
-        self.assertFalse(self.module._waiting)
-        self.assertIsNone(self.module._job)
+        self.assertFalse(session.waiting)
+        self.assertIsNone(session.job)
 
     def test_app_switch_before_selection_does_not_select_stale_item(self):
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.application.pid = 2
         self.labels.select(1)
         self.assertEqual(self.selected, [])
         self.notify.assert_called_once()
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
 
     def test_external_menu_dismissal_clears_labels(self):
         self.menu = self.submenu()
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.menu = None
-        self.module._update()
+        session.update()
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
 
     def test_missing_menu_reports_accessibility_failure(self):
         self.application.children = Children()
@@ -360,30 +382,33 @@ class MenuLabelsTests(unittest.TestCase):
             self.actions.menu_labels_show(False)
         self.notify.assert_called_once()
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(self.module._session)
 
     def test_accessibility_failure_while_waiting_cleans_up(self):
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.labels.select(1)
         self.ui.active_menu = Mock(side_effect=UIErr("Stale element"))
         with self.assertLogs(level="ERROR"):
-            self.module._update()
+            session.update()
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
         self.notify.assert_called_once()
 
     def test_accessibility_failure_before_selection_cleans_up(self):
         self.actions.menu_labels_show(False)
+        session = self.module._session
         self.ui.active_menu = Mock(side_effect=UIErr("Stale element"))
         with self.assertLogs(level="ERROR"):
             self.labels.select(1)
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
+        self.assertIsNone(session.job)
         self.assertEqual(self.selected, [])
         self.notify.assert_called_once()
 
     def test_failed_accessibility_press_cleans_up(self):
         self.actions.menu_labels_show(False)
+        session = self.module._session
         native = self.native
 
         def fail_select(name, *args):
@@ -395,8 +420,8 @@ class MenuLabelsTests(unittest.TestCase):
         with self.assertLogs(level="ERROR"):
             self.labels.select(1)
         self.assertEqual(self.visible, [])
-        self.assertIsNone(self.module._job)
-        self.assertFalse(self.module._selecting)
+        self.assertIsNone(session.job)
+        self.assertFalse(session.selecting)
         self.notify.assert_called_once()
 
     def test_invalid_numbers_report_error_without_selecting(self):
@@ -411,7 +436,7 @@ class MenuLabelsTests(unittest.TestCase):
         self.actions.menu_labels_show(False)
         self.actions.menu_labels_click(2)
         self.assertEqual(self.selected, [2])
-        self.assertTrue(self.module._waiting)
+        self.assertTrue(self.module._session.waiting)
 
     def test_number_command_in_title_mode_explains_how_to_switch(self):
         self.actions.menu_labels_show()

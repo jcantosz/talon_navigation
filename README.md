@@ -1,6 +1,6 @@
 # Talon Navigation
 
-macOS application-menu navigation and local Talon command reports.
+macOS application-menu/status-bar navigation and local Talon command reports.
 Install this repository anywhere under Talon's `user` directory. Menu navigation
 requires macOS accessibility support and Talon's native labels API.
 
@@ -17,6 +17,78 @@ The exact `show menu numbers` rule uses a dedicated tag so it overrides the
 generic default command without modifying the default package.
 `Go back` is also an alias while menu labels are active, but overlaps with browser
 navigation commands; `menu back` is less ambiguous.
+
+## Status icons and panels
+
+- **Show status labels**: label the accessible top-right menu-bar icons by name.
+- **Show status numbers**: label those icons by number.
+- If a status menu or accessible system panel is already open, either command
+  labels its controls instead of resetting to the icons. Repeating the command
+  switches title/number style on the current panel, including while it opens.
+- Say a displayed title or number to open that icon's menu or panel. Its controls
+  replace the icon labels in the same style.
+- **Status back**: use an accessible Back button or close a nested native menu
+  when available; otherwise close the panel and relabel the status icons.
+- **Hide status labels** or **hide status numbers**: remove labels and stop
+  navigation. This does not itself close the open panel.
+- **Refresh status labels** or **refresh status numbers**: relabel the open panel,
+  or freshly scan the visible menu bar when no panel is open.
+
+From the first request, discovery hit-tests the menu bar at 8-point intervals,
+finds status items' parent menu bars, and reads those parents' contents. Every
+normal icon-show request performs a fresh scan, so new providers can be found
+without a cache-expiry delay. App metadata is used only to associate discovered
+parents with their owners; unrelated apps' accessibility trees are not queried.
+Back navigation rereads the already-discovered parents.
+
+There is no all-application discovery scan or legacy fallback. Accessibility
+failures produce a notification. Unusually narrow or vertically offset custom
+accessibility bounds can be missed by the scan.
+
+Titles come from macOS accessibility information. Some third-party icons have
+generic names such as `MenuBarItem`. Discovery verifies each icon's center against
+screen hit-testing: items covered by the application's menu bar or hidden behind
+other UI are not clickable targets, even if macOS reports an on-screen rectangle.
+Long names can collide: Talon's native label
+layout spreads badges downward and may omit badges when space runs out. Numbers
+are preferable for a crowded menu bar. This feature does not reposition icons.
+
+Selecting a panel button, checkbox, or switch performs its normal action, which
+can change a system setting. Selecting a slider does **not** click its midpoint:
+use **status increase &lt;label&gt;** or **status decrease &lt;label&gt;** for an
+advertised accessibility increment/decrement action. **Status details
+&lt;label&gt;** only invokes an explicitly advertised “show details” action; it
+never substitutes a toggle. Unsupported controls or transitions without an
+accessible replacement panel produce a notification.
+
+Increase/decrease uses the label **on the adjustable control inside the panel**,
+not the status icon or a button that opens the panel. For example, if the volume
+slider is numbered **7**, say **status increase seven** or **status decrease
+seven**. Labels stay visible, so the same command can be repeated without
+showing labels again. Reaching the slider's minimum or maximum does not remove
+labels. Value-only changes and tiny animation movements do not rebuild the
+overlay; meaningful changes to the panel's controls still refresh it.
+A normal checkbox/toggle does not become adjustable merely because it
+has a label; unsupported adjustments notify without pressing it.
+
+Panels differ between apps and macOS versions. Only accessible controls and
+menus are supported; appearance on screen alone does not guarantee accessibility.
+Discovery of already-open windows accepts accessible system dialogs/popovers
+owned by status providers, not their ordinary document/settings windows. Back
+from an adopted panel needs an identifiable opener or an advertised close action;
+if neither is available, it notifies instead of guessing which icon to press.
+Root icons are opened with a mouse click because some apps advertise an
+accessibility press action that does nothing. Switching to an unrelated app
+ends status navigation. Default Talon command files are not modified.
+
+### Command aliases
+
+Use whole-word alternatives: `(lab | label)` means either word, while
+`[lab | label | num | number]` means one of those words or nothing.
+For example, `move [to] [menu] [lab | label | num | numb | number] <number>`
+accepts “move five,” “move menu label five,” and “move to menu number five.”
+`lab[el]` does not join a suffix onto a word; Talon parses it as `lab [el]`,
+which requires “lab” followed by an optional separate “el” token.
 
 ## On-demand command reports
 
@@ -56,6 +128,10 @@ lists, capture-vs-capture intersections, future context combinations, phonetic
 similarity, and full recognition precedence are not resolved.
 
 ## Lint and tests
+
+Menu and status navigation share label rendering, active-context, polling, and
+cancellation behavior through [`lib/labels.py`](lib/labels.py). Feature modules
+own only their navigation-specific state and accessibility traversal.
 
 The checker runs Ruff's Python syntax/lint checks, Python formatting checks, the
 Tree-sitter Talon parser and Cursorless formatter, then all unit tests. It checks
@@ -112,10 +188,31 @@ From the repository root:
 ```
 
 Tests use Python's standard library and mocked Talon APIs, so Talon does not need
-to be running. They cover menu traversal/back navigation, grammar analysis, report
+to be running. They cover menu/status traversal and back navigation, status
+parent-based discovery, slider safety, grammar analysis, report
 views and HTML escaping, report regeneration, browser opening, and explicit
 failure notifications. Test paths are relative to the repository, not a specific
 user's installation.
+Slider tests model Talon's inset hit rectangles, changing accessibility geometry,
+and repeated adjustments without hiding or unnecessarily redrawing labels.
+
+### Status discovery validation
+
+[discovery.py](status/discovery.py) is the discovery path used by voice commands.
+Its `discover` function
+hit-tests menu-bar rows, walks to the status items' parent bars, then reads their
+contents. It accepts the running Talon `ui` object plus the status module's
+visibility and hit-test helpers, and reports elements, owning application
+elements, parents, probe rows, probe query/empty-hit counts, and elapsed time.
+
+[test_status_discovery_probe.py](tests/test_status_discovery_probe.py) compares
+this approach with an all-provider reference using simulated accessibility
+trees. It covers narrow icons, covered/hidden/disabled items, empty hits,
+descendant hits, hidden bars, and monitors with different offsets and bar
+heights. Tests also document the accepted limits: a sparse stride can miss a
+narrow icon whose parent has not otherwise been found, and a single probe row can
+miss vertically offset custom accessibility bounds. The normal path uses
+8-point spacing for real-world status icons and does not fall back to app scans.
 The Talon linter integration tests also exercise malformed files and read-only
 checks; these are explicitly skipped if Node or the npm development dependencies
 are absent.
