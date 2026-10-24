@@ -4,6 +4,33 @@ macOS application-menu/status-bar navigation and local Talon command reports.
 Install this repository anywhere under Talon's `user` directory. Menu navigation
 requires macOS accessibility support and Talon's native labels API.
 
+## Formatted dictation
+
+On macOS, **type**, **literal**, and **say** followed by dictation use Talon
+Community's existing `<user.prose>` capture for punctuation, spacing, and
+capitalization, then record the result in Community's phrase history and use
+`insert()`, just like the **phrase** command.
+For example, **say hello comma world period** inserts **Hello, world.**
+This requires Talon Community and avoids requiring an accessible text field,
+which can be unreliable in editors such as VS Code.
+
+This overrides the default command prefixes without modifying the default
+package. It does not change unprefixed dictation mode or the **phrase** command.
+It uses Community's prose formatting rather than native AX-aware dictation;
+native last-dictation correction/selection tracking is not retained.
+The original `type <phrase> | literal <phrase> | say <phrase>` rule is also
+overridden exactly, so plain phrases cannot fall through to `dictate.phrase()`.
+That plain-phrase path uses Talon's existing word replacements, records history,
+and calls `insert()` directly. Existing formatter commands are left unchanged.
+
+- **Dictate long**: allow two seconds of silence before ending an utterance.
+- **Dictate short**: remove that override and restore your normal configured
+  speech timeout (not a hard-coded value).
+
+Say either timeout command as a separate utterance before dictating. The
+selection persists until changed or Talon reloads these definitions. While long
+is enabled, it affects all speech, not only the three dictation prefixes.
+
 ## Menu navigation
 
 - **Show menu labels** or **menu labels**: label the active application's menu by title.
