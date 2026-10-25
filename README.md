@@ -4,6 +4,85 @@ macOS application-menu/status-bar navigation and local Talon command reports.
 Install this repository anywhere under Talon's `user` directory. Menu navigation
 requires macOS accessibility support and Talon's native labels API.
 
+## Speech ignored while asleep
+
+When Talon's sleep-mode catch-all recognizes and ignores an utterance, a
+native notification says **Talon is asleep** and reminds you to say **wake up**.
+Notification appearance and history are controlled by your operating system.
+Warnings are limited to once every five seconds. Wake-up and other recognized
+sleep-mode commands do not trigger warnings. This does not wake Talon or execute
+the ignored speech.
+
+The warning uses the same sleep catch-all detection as Community's subtitles.
+It cannot distinguish attempted commands from background conversation, so any
+speech recognized by that catch-all can trigger it. It cannot detect speech when
+the microphone is actually muted or disconnected.
+
+- **Sleep warnings on / sleep warnings off**: enable or disable warnings while
+  awake or asleep, with a confirmation notification. This choice lasts
+  until Talon restarts or this module reloads; it is not saved to disk.
+- Set `user.sleep_warning = false` in a Talon `settings()` block to change the
+  startup default. Voice commands override that default for the current session.
+- **Sleep warnings off [for] thirty minutes / one hour**: disable warnings for
+  the specified duration, then automatically turn them on with a confirmation.
+  Seconds, minutes, and hours are supported, using Talon's number capture.
+  Another timed request replaces the timer; plain **off** cancels automatic
+  re-enabling, and **on** cancels the timer and enables warnings immediately.
+  Timers are not saved across a restart or module reload.
+- Set `user.sleep_warning_use_overlay = true` to use three-second Talon overlays
+  for warnings and confirmations instead of native notifications. This is an
+  optional alternative if native notifications are unsuitable on your system;
+  it is not selected automatically by operating system.
+
+### Targeted wake and sleep
+
+When several computers running this repository can hear you, use **sleep
+&lt;target&gt;**, **wake &lt;target&gt;**, or **wake up &lt;target&gt;**. The
+reverse forms **&lt;target&gt; sleep**, **&lt;target&gt; wake**, and
+**&lt;target&gt; wake up** are also available. Each machine accepts only its own
+targets:
+
+- Its short hostname, converted to a spoken form. For example,
+  `office-mac.local` becomes **office mac**.
+- Its operating-system group: **windows** (also **Microsoft** or **win**),
+  **mac** (or **mac OS**), or **linux**.
+
+For stable or easier spoken names, configure a comma-separated list in that
+computer's global Talon file:
+
+```talon
+settings():
+    user.targeted_sleep_names = "office, desk mac"
+```
+
+That machine will then respond to both **sleep office** and **desk mac sleep**.
+The list refreshes within one second after a settings change. The singular
+`user.targeted_sleep_name` setting remains as a fallback when the list is empty.
+An OS target intentionally affects every nearby machine running that OS; a
+configured name should therefore be unique when targeting one computer.
+Standard Community commands such as **wake up** and **go to sleep** remain
+available as fallbacks.
+
+## Native captions while awake
+
+Native Talon captions are automatically hidden in sleep mode and shown outside
+sleep mode. This is enabled by default.
+
+- **Sleep captions on**: enable this automatic behavior.
+- **Sleep captions off**: stop controlling captions and restore the underlying
+  caption menu state captured when automatic control began. It does not mean
+  "always hide captions."
+
+Both commands work while awake or asleep and show a native confirmation.
+The toggle resets to enabled when Talon restarts or the module reloads.
+This operates Talon's actual **Show Subtitles** menu control, checked every
+250 milliseconds, not Community's separate `user.subtitles_show` feature.
+It uses an internal Talon menu interface verified in the installed version;
+if that interface changes, it raises an explicit error rather than silently
+pretending captions changed. While enabled, manual caption changes are overridden
+by the current awake/asleep state. It does not change the speech mode,
+microphone, sleep warnings, or Community subtitles.
+
 ## Formatted dictation
 
 On macOS, **type**, **literal**, and **say** followed by dictation use Talon
@@ -130,10 +209,14 @@ opens.
 | **Talon conflicts report** | All duplicate, shared-phrase, and potential-overlap candidates |
 | **Talon active commands report** | Rules in the active command registry at generation time |
 
-All reports include search, package/status filters, source locations, context
-restrictions, and **All at once** in the rows-per-page selector. The conflict
-report also has separate tabs for duplicate grammar, shared phrases/templates,
-and potential capture/list overlaps.
+All reports include search plus package, directory, top-level word, target OS,
+and status filters. A target OS of **Generic** means that the context has no OS
+restriction. Talon does not provide native per-command description metadata;
+the report therefore does not attempt to infer descriptions from comments or
+action bodies. Reports also include source locations, context restrictions, and
+**All at once** in the rows-per-page selector. The conflict report has separate
+tabs for duplicate grammar, shared phrases/templates, and potential capture/list
+overlaps.
 
 Reports are self-contained HTML files stored under
 `~/.talon/reports/talon_navigation/`, outside the repository. Regenerating a report

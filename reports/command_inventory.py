@@ -1,6 +1,7 @@
 """Build local, read-only reports of Talon's installed command rules."""
 
 import json
+import re
 from collections import defaultdict
 from datetime import datetime
 from html import escape
@@ -19,6 +20,19 @@ REPORTS = {
 
 class ExpansionLimit(Exception):
     pass
+
+
+def target_platforms(restrictions):
+    """Derive supported operating systems from a rendered Talon context match."""
+    platforms = {
+        match.casefold()
+        for match in re.findall(
+            r"\bos\s*(?::|==)\s*['\"]?(windows|mac|linux)\b",
+            restrictions,
+            flags=re.IGNORECASE,
+        )
+    }
+    return sorted(platforms) if platforms else ["generic"]
 
 
 def variants(node):
@@ -196,6 +210,11 @@ def snapshot():
                 source.relative_to(root) if source.is_relative_to(root) else source
             )
             package = relative.parts[0] if len(relative.parts) > 1 else "(local files)"
+            directory = (
+                relative.parent.as_posix()
+                if relative.parent != Path(".")
+                else "(user root)"
+            )
             limitation = ""
             try:
                 forms = variants(rule.root)
@@ -221,6 +240,8 @@ def snapshot():
                     "context": context_name,
                     "matches": restrictions,
                     "package": package,
+                    "directory": directory,
+                    "platforms": target_platforms(restrictions),
                     "active": id(implementation) in active_commands,
                     "contextActive": context in active_contexts,
                     "prefixes": sorted(leading),
@@ -312,6 +333,16 @@ are not part of the inventory. Source links point to local files; browsers may r
 <option value="limited">Expansion limited</option>
 </select>
 <label for="package">Package</label><select id="package"></select>
+<label for="directory">Directory</label><select id="directory"></select>
+<label for="prefix">Top-level word</label><select id="prefix"></select>
+<label for="platform">Target OS</label>
+<select id="platform">
+<option value="">All operating systems</option>
+<option value="generic">Generic</option>
+<option value="windows">Windows</option>
+<option value="mac">macOS</option>
+<option value="linux">Linux</option>
+</select>
 <button id="reset">Reset filters</button>
 </div>
 <p id="count" aria-live="polite"></p>
@@ -354,18 +385,36 @@ for (const name of ["All packages", ...new Set(commands.map(c => c.package).sort
   option.value = name === "All packages" ? "" : name;
   $("package").appendChild(option);
 }
-const commandSearch = c => [c.rule, c.file, c.context, c.matches, c.package, ...c.prefixes].join(" ").toLowerCase();
+for (const name of ["All directories", ...new Set(commands.map(c => c.directory).sort())]) {
+  const option = document.createElement("option");
+  option.textContent = name;
+  option.value = name === "All directories" ? "" : name;
+  $("directory").appendChild(option);
+}
+for (const name of ["All top-level words", ...new Set(commands.flatMap(c => c.prefixes).sort())]) {
+  const option = document.createElement("option");
+  option.textContent = name;
+  option.value = name === "All top-level words" ? "" : name;
+  $("prefix").appendChild(option);
+}
+const commandSearch = c => [
+  c.rule, c.file, c.directory, c.context, c.matches, c.package,
+  ...c.platforms, ...c.prefixes
+].join(" ").toLowerCase();
 const searchable = commands.map(commandSearch);
 function commandDetails(c) {
   const state = c.active ? "Active now" : c.contextActive ? "Context active; not in active command registry" : "Inactive context";
   return `<code>${escapeHtml(c.rule)}</code> <span class="badge ${c.active ? "active" : ""}">${state}</span>
     <div class="small"><a href="${escapeHtml(c.uri)}">${escapeHtml(c.file)}:${c.line}</a></div>
-    <div class="small muted">${escapeHtml(c.matches)}</div>
+    <div class="small muted">${escapeHtml(c.matches)} · Target OS: ${c.platforms.map(escapeHtml).join(", ")}</div>
     ${c.limitation ? `<div class="small warn">Expansion limited: ${escapeHtml(c.limitation)}</div>` : ""}`;
 }
 function matchesCommand(c, query) {
   return (!query || searchable[c.id].includes(query)) &&
-    (!$("package").value || c.package === $("package").value);
+    (!$("package").value || c.package === $("package").value) &&
+    (!$("directory").value || c.directory === $("directory").value) &&
+    (!$("prefix").value || c.prefixes.includes($("prefix").value)) &&
+    (!$("platform").value || c.platforms.includes($("platform").value));
 }
 function filterRows() {
   const query = $("search").value.trim().toLowerCase();
@@ -377,8 +426,7 @@ function filterRows() {
       (status !== "limited" || c.limitation));
   }
   return data[section].filter(group => {
-    const selected = group.ids.map(id => commands[id]).filter(c =>
-      !$("package").value || c.package === $("package").value);
+    const selected = group.ids.map(id => commands[id]).filter(c => matchesCommand(c, ""));
     if (!selected.length) return false;
     if (query && !group.label.toLowerCase().includes(query) &&
       !selected.some(c => searchable[c.id].includes(query))) return false;
@@ -399,8 +447,8 @@ function render() {
   $("count").textContent = `${rows.length.toLocaleString()} matching ${section === "commands" ? "command definitions" : "groups"}${section === "prefixes" ? " — shared prefixes are not conflicts." : ""}${section === "commands" && $("status").value === "multiple" ? " — choose a conflict section for multi-definition groups." : ""}`;
   const slice = rows.slice(page * size, (page + 1) * size);
   if (section === "commands") {
-    $("results").innerHTML = `<table><thead><tr><th>Command rule / status / source / restrictions</th><th>Top-level words</th><th>Package</th></tr></thead><tbody>${
-      slice.map(c => `<tr><td>${commandDetails(c)}</td><td>${c.prefixes.map(escapeHtml).join(", ")}</td><td>${escapeHtml(c.package)}</td></tr>`).join("")
+    $("results").innerHTML = `<table><thead><tr><th>Command rule / status / source / restrictions</th><th>Top-level words</th><th>Directory</th><th>Package</th></tr></thead><tbody>${
+      slice.map(c => `<tr><td>${commandDetails(c)}</td><td>${c.prefixes.map(escapeHtml).join(", ")}</td><td>${escapeHtml(c.directory)}</td><td>${escapeHtml(c.package)}</td></tr>`).join("")
     }</tbody></table>`;
   } else {
     $("results").innerHTML = `<table><thead><tr><th>${section === "prefixes" ? "First word / reference" : "Phrase / grammar"}</th><th>Definitions</th><th>Sources and contexts</th></tr></thead><tbody>${
@@ -414,13 +462,15 @@ function render() {
   $("previous").disabled = page === 0;
   $("next").disabled = page >= pages - 1;
 }
-for (const id of ["search", "status", "package", "size"]) {
+for (const id of ["search", "status", "package", "directory", "prefix", "platform", "size"]) {
   $(id).addEventListener(id === "search" ? "input" : "change", () => { page = 0; render(); });
 }
 $("previous").addEventListener("click", () => { page--; render(); });
 $("next").addEventListener("click", () => { page++; render(); });
 $("reset").addEventListener("click", () => {
-  $("search").value = ""; $("status").value = "all"; $("package").value = ""; page = 0; render();
+  $("search").value = ""; $("status").value = "all"; $("package").value = "";
+  $("directory").value = ""; $("prefix").value = ""; $("platform").value = "";
+  page = 0; render();
 });
 render();
 </script>

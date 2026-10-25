@@ -80,6 +80,12 @@ class InventoryTests(unittest.TestCase):
         self.assertNotIn(dangerous, html)
         self.assertEqual(self.embedded_data(html)["commands"][0]["rule"], dangerous)
 
+    def test_report_exposes_command_metadata_filters(self):
+        html = inventory.render_report(self.report_data())
+        for control in ("directory", "prefix", "platform"):
+            with self.subTest(control=control):
+                self.assertIn(f'id="{control}"', html)
+
     def test_unknown_report_is_rejected(self):
         with self.assertRaises(KeyError):
             inventory.render_report(self.report_data(), "unknown")
@@ -143,6 +149,20 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(
             inventory.variants(Seq(Literal("menu"), RuleRef("user.target"))),
             {("menu", "<user.target>")},
+        )
+
+    def test_target_platforms_distinguish_generic_and_specific_contexts(self):
+        self.assertEqual(
+            inventory.target_platforms("os: windows\nor os: linux"),
+            ["linux", "windows"],
+        )
+        self.assertEqual(
+            inventory.target_platforms("M(M(os=='mac') AND M(tag=='user.menu'))"),
+            ["mac"],
+        )
+        self.assertEqual(
+            inventory.target_platforms("app: com.apple.finder"),
+            ["generic"],
         )
 
     def test_repetition_is_explicitly_limited_but_indexed(self):
