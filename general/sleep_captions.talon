@@ -9,8 +9,8 @@ mode: sleep
 ^sleep captions default$:
     user.sleep_captions_default()
 
-^captions enable$:
+^captions (enable | on)$:
     user.captions_enable()
 
-^captions disable$:
+^captions (disable | off)$:
     user.captions_disable()

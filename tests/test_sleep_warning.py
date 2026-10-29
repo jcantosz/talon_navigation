@@ -188,9 +188,12 @@ class SleepWarningTests(unittest.TestCase):
         grammar = SOURCE.with_suffix(".talon").read_text()
         for mode in ("command", "dictation", "sleep"):
             self.assertIn(f"mode: {mode}\n", grammar)
-        for word, action in (("on", "enable"), ("off", "disable")):
+        for rule, action in (
+            ("on | show sleep warnings", "enable"),
+            ("(off | disabled) | hide sleep warnings", "disable"),
+        ):
             self.assertIn(
-                f"^sleep warnings {word}$:\n    user.sleep_warning_{action}()\n",
+                f"^ sleep warnings {rule} $:\n    user.sleep_warning_{action}()\n",
                 grammar,
             )
 
@@ -260,7 +263,9 @@ class SleepWarningTests(unittest.TestCase):
     def test_timed_command_uses_existing_number_capture_and_is_anchored(self):
         grammar = SOURCE.with_suffix(".talon").read_text()
         self.assertIn(
-            "^sleep warnings off [for] <user.sleep_warning_duration>$:\n"
+            "^ sleep warnings (off | disabled) [for] "
+            "<user.sleep_warning_duration> | hide sleep warnings [for] "
+            "<user.sleep_warning_duration> $:\n"
             "    user.sleep_warning_disable_for(sleep_warning_duration)\n",
             grammar,
         )

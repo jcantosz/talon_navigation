@@ -125,8 +125,11 @@ class SleepCaptionsTests(unittest.TestCase):
                 f"^sleep captions {word}$:\n    user.sleep_captions_{action}()\n",
                 grammar,
             )
-        for word, action in (("enable", "enable"), ("disable", "disable")):
+        for rule, action in (
+            ("(enable | on)", "enable"),
+            ("(disable | off)", "disable"),
+        ):
             self.assertIn(
-                f"^captions {word}$:\n    user.captions_{action}()\n",
+                f"^captions {rule}$:\n    user.captions_{action}()\n",
                 grammar,
             )
