@@ -28,14 +28,30 @@ and audit spikes for code outside this audit's scope (menus, status, reports).
 
 | Principle | Assessment | Evidence / qualification |
 |---|---|---|
-| Own little code | Follows | Production uses native `axquery`, `actions.labels`, and the shared label wrapper; highlighting reuses AxKit's dictation element and Community homophones. No second production tree walker. The fixes added no new infrastructure. |
-| Application-independent behavior | Follows | No bundle-name branches in core traversal. The VS Code depth override is a Talon setting. Editable role/shared-range handling is generic. |
+| Own little code | Follows, with bounded root discovery | Production uses native `axquery`, `actions.labels`, and the shared label wrapper; highlighting reuses AxKit's dictation element and Community homophones. Staged numbering adds a bounded native-node walk that stops at web areas; native queries still enumerate their controls. |
+| Application-independent behavior | Follows | No bundle-name branches in core traversal. Depth, staged web-area collection and surface clipping are generic settings enabled by app contexts. Cross-app filter comparisons remain open in N12d. Editable role/shared-range handling is generic. |
 | Focused application/window | Partially verified (A4) | Window/offset rejection has tests. Same-window editable identity with unreliable `AXFocused` remains an open safety limitation. |
 | Diagnostics isolated | Follows | Debug imports production's focused-surface helper, not the reverse. |
 | Supported Talon APIs, no native callbacks | Follows | `ui.register`, native queries, AX attribute writes, cron one-shot refresh, imgui, labels, `ui.active_window`. No ctypes/CFFI observer. |
 | Surface errors | Follows (after A3/A5) | Activation, toggle, selection, homophone, stale-element, and debug I/O failures are logged with `logging.exception` and notified. Partial snapshots are flagged. |
 | Ask before scope expansion | Follows | No fuzzy matching, adapter framework, custom canvas, polling loop, or command override added. Mouse/profiles have decision gates. |
 | Removable experiments | Follows | Highlighting remains isolated in its own files; its fixes touch only those files. |
+
+### Live numbering follow-up (2026-10-30)
+
+[N12c](numbers-and-menus.md#n12c-replace-talons-visibility-pruning-with-a-surface-clip)
+records successful staged action-path checks and the Settings/long-list
+comparison. No microphone recognition was tested. Surface clipping retained
+all Talon-filtered controls in those sampled Settings states, but exposed
+additional More Actions popups whose visibility/usability needs validation.
+The real application-number command also reset the filtered/scrolled
+Settings view to Commonly Used; this is **not** a passed state-preservation
+check. Isolation and remediation are tracked in
+[N12e](numbers-and-menus.md#n12e-preserve-the-settings-view-while-showing-numbers).
+
+The filter is generic, not a VS Code Python branch. Its global default remains
+off pending native-app, browser and other Electron-app comparisons in
+[N12d](numbers-and-menus.md#n12d-compare-both-visibility-filters-across-applications).
 
 ## Findings and fixes
 
