@@ -1,4 +1,5 @@
 import logging
+from math import isfinite
 
 from talon import Context, Module, actions, app, axquery, cron, settings, ui
 
@@ -20,6 +21,21 @@ mod.setting(
     type=int,
     default=0,
     desc="Maximum AX query depth for application labels; 0 means unlimited.",
+)
+mod.setting(
+    "accessibility_query_timeout",
+    type=float,
+    default=1.0,
+    desc="Positive timeout in seconds for each application label AX query.",
+)
+mod.setting(
+    "accessibility_defer_web_areas",
+    type=bool,
+    default=False,
+    desc=(
+        "Number the web area titled like the focused window first, then append "
+        "controls from other web areas whose centers are visible."
+    ),
 )
 ctx = Context()
 ctx.matches = "os: mac"
@@ -53,14 +69,14 @@ EXPANDING_ROLES = {
     "AXPopUpButton",
 }
 QUERY = "[AXPosition]:action(AXPress)"
+MAX_NATIVE_NODES = 10000
 ACCESSIBILITY_ATTRIBUTES = (
     "AXEnhancedUserInterface",
     "AXManualAccessibility",
 )
+_previous_session = globals().get("_session")
 _session = None
 _activation_overrides = {}
-
-_previous_session = globals().get("_session")
 if _previous_session is not None:
     _previous_session.stop()
 
@@ -78,29 +94,155 @@ def focused_surfaces(owner):
     return surfaces
 
 
-def _controls(owner):
-    controls = []
+def _query_budget():
     configured_depth = settings.get("user.accessibility_query_max_depth")
     if configured_depth < 0:
         raise RuntimeError(
             "user.accessibility_query_max_depth must be zero or a positive integer."
         )
-    max_depth = configured_depth or -1
-    for _, root in focused_surfaces(owner):
-        for element in axquery.query_all(
-            QUERY,
-            root=root,
-            visible_only=True,
-            max_depth=max_depth,
-            timeout=1,
-        ):
-            if (
-                element.get("AXRole") in CONTROL_ROLES
-                and element.get("AXEnabled") is not False
-                and not any(existing == element for existing in controls)
-            ):
-                controls.append(element)
-    return controls
+    timeout = settings.get("user.accessibility_query_timeout")
+    if not isfinite(timeout) or timeout <= 0:
+        raise RuntimeError(
+            "user.accessibility_query_timeout must be finite and greater than zero."
+        )
+    return configured_depth or -1, timeout
+
+
+def _add_control(element, controls):
+    if (
+        element.get("AXRole") in CONTROL_ROLES
+        and element.get("AXEnabled") is not False
+        and element.get("AXHidden") is not True
+        and _has_usable_frame(element)
+        and not any(existing == element for existing in controls)
+    ):
+        controls.append(element)
+
+
+def _query_controls(root, controls, budget):
+    max_depth, timeout = budget
+    for element in axquery.query_all(
+        QUERY,
+        root=root,
+        visible_only=True,
+        max_depth=max_depth,
+        timeout=timeout,
+    ):
+        _add_control(element, controls)
+
+
+def _split_web_areas(window):
+    """Return native controls, the window's primary web area, and other web areas."""
+    native = []
+    areas = []
+    stack = [window]
+    for _ in range(MAX_NATIVE_NODES):
+        if not stack:
+            break
+        element = stack.pop()
+        if element.get("AXRole") == "AXWebArea":
+            areas.append(element)
+            continue
+        if "AXPress" in element.actions and element.get("AXPosition") is not None:
+            native.append(element)
+        stack.extend(reversed(element.get("AXChildren") or ()))
+    else:
+        raise RuntimeError("Too many native accessibility nodes outside web areas.")
+
+    title = window.get("AXTitle")
+    primary = [area for area in areas if title and area.get("AXTitle") == title]
+    if len(primary) != 1:
+        logging.debug(
+            "Application labels: %d web areas match the window title; "
+            "querying the whole window",
+            len(primary),
+        )
+        return None
+    others = [area for area in areas if area != primary[0]]
+    return native, primary[0], others
+
+
+def _controls(owner):
+    """Return numbered controls and web areas whose controls may be appended later."""
+    budget = _query_budget()
+    defer = settings.get("user.accessibility_defer_web_areas")
+    controls = []
+    deferred = []
+    for kind, root in focused_surfaces(owner):
+        split = _split_web_areas(root) if defer and kind == "focused-window" else None
+        if split is None:
+            _query_controls(root, controls, budget)
+            continue
+        native, primary, others = split
+        for element in native:
+            _add_control(element, controls)
+        _query_controls(primary, controls, budget)
+        deferred.extend(others)
+    return controls, deferred
+
+
+def _deferred_controls(areas, controls):
+    """Return controls from deferred web areas whose centers are not covered."""
+    budget = _query_budget()
+    combined = list(controls)
+    cache = []
+    for area in areas:
+        if _has_usable_frame(area) and _in_visible_web_area(area, cache):
+            _query_controls(area, combined, budget)
+    return combined[len(controls) :]
+
+
+def _has_usable_frame(element):
+    frame = element.get("AXFrame")
+    return (
+        frame is not None
+        and all(
+            isfinite(value) for value in (frame.x, frame.y, frame.width, frame.height)
+        )
+        and frame.width > 0
+        and frame.height > 0
+    )
+
+
+def _web_area(element, cache):
+    # Talon elements are unhashable; cache ancestors by equality per collection.
+    trail = []
+    for _ in range(100):
+        if element is None:
+            area = None
+            break
+        for node, area in reversed(cache):
+            if element == node:
+                break
+        else:
+            trail.append(element)
+            if element.get("AXRole") == "AXWebArea":
+                area = element
+                break
+            element = element.get("AXParent")
+            continue
+        break
+    else:
+        raise RuntimeError("Unable to resolve accessibility web-area ancestry.")
+    cache.extend((node, area) for node in trail)
+    return area
+
+
+def _in_visible_web_area(element, cache):
+    area = _web_area(element, cache)
+    if area is None:
+        return True
+    frame = element.get("AXFrame")
+    if frame is None:
+        return False
+    try:
+        hit = ui.element_at(frame.x + frame.width / 2, frame.y + frame.height / 2)
+    except RuntimeError as error:
+        if str(error) != "No element found.":
+            raise
+        logging.debug("Application labels: no element at web control center %s", frame)
+        return False
+    return _web_area(hit, cache) == area
 
 
 def _signature(elements):
@@ -173,11 +315,14 @@ def _prepare_accessibility_interfaces(owner):
 
 class ApplicationLabelSession(LabelSession):
     def __init__(self, owner):
-        super().__init__(labels_ctx, "user.application_labels_active", False)
+        # Publish the tag from the unconditional context; labels_ctx requires it.
+        super().__init__(ctx, "user.application_labels_active", False)
         self.owner = owner
         self.targets = []
+        self.window = None
         self.signature = ()
         self.refresh_job = None
+        self.deferred_job = None
         self.refreshing = False
 
     def start(self):
@@ -201,29 +346,67 @@ class ApplicationLabelSession(LabelSession):
 
         self.refreshing = True
         try:
-            targets = _controls(self.owner)
-            signature = _signature(targets)
-            if not force and signature == self.signature:
+            self._cancel_deferred()
+            window = self.owner.element.get("AXFocusedWindow")
+            targets, deferred = _controls(self.owner)
+            if force and targets and deferred:
+                # Show the primary surface before walking secondary web areas.
+                self._update(window, targets, force)
+                if not self.stopped:
+                    self.deferred_job = cron.after(
+                        "0ms", lambda: self._append_deferred(window, targets, deferred)
+                    )
                 return
-            if not targets:
-                actions.labels.hide()
-                app.notify(
-                    "Application control labels",
-                    "The focused window exposes no visible pressable controls.",
-                )
+            self._update(window, targets + _deferred_controls(deferred, targets), force)
+        except (AttributeError, RuntimeError, ui.UIErr):
+            self._query_failed()
+        finally:
+            self.refreshing = False
+
+    def _append_deferred(self, window, targets, deferred):
+        self.deferred_job = None
+        if self.stopped or ui.active_app().pid != self.owner.pid:
+            return
+        try:
+            if self.owner.element.get("AXFocusedWindow") != window:
+                self.request_refresh()
                 return
-            self.targets = targets
-            self.signature = signature
-            self.render(targets)
-        except (RuntimeError, ui.UIErr):
-            logging.exception("Application labels: unable to query focused controls")
+            extra = _deferred_controls(deferred, targets)
+            if extra:
+                self._update(window, targets + extra, force=False)
+        except (AttributeError, RuntimeError, ui.UIErr):
+            self._query_failed()
+
+    def _update(self, window, targets, force):
+        signature = _signature(targets)
+        if not force and signature == self.signature and window == self.window:
+            return
+        if not targets:
+            _stop()
             actions.labels.hide()
             app.notify(
                 "Application control labels",
-                "Unable to query the focused accessibility window.",
+                "The focused window exposes no visible pressable controls.",
             )
-        finally:
-            self.refreshing = False
+            return
+        self.targets = targets
+        self.window = window
+        self.signature = signature
+        self.render(targets)
+
+    def _query_failed(self):
+        logging.exception("Application labels: unable to query focused controls")
+        _stop()
+        actions.labels.hide()
+        app.notify(
+            "Application control labels",
+            "Unable to query the focused accessibility window.",
+        )
+
+    def _cancel_deferred(self):
+        if self.deferred_job is not None:
+            cron.cancel(self.deferred_job)
+            self.deferred_job = None
 
     def select(self, label):
         if ui.active_app().pid != self.owner.pid:
@@ -239,13 +422,29 @@ class ApplicationLabelSession(LabelSession):
             return
 
         target = self.targets[label - 1]
-        expand = _may_expand(target)
-        self.preserve_hide = expand
         try:
+            if self.owner.element.get("AXFocusedWindow") != self.window:
+                actions.labels.hide()
+                app.notify(
+                    "Application control labels",
+                    "The focused window changed. Say 'show application numbers' again.",
+                )
+                return
+            if settings.get(
+                "user.accessibility_defer_web_areas"
+            ) and not _in_visible_web_area(target, []):
+                actions.labels.hide()
+                app.notify(
+                    "Application control labels",
+                    "The control's web area is covered. Show application numbers again.",
+                )
+                return
+            expand = _may_expand(target)
+            self.preserve_hide = expand
             actions.next(label)
             if expand:
                 self.request_refresh("100ms")
-        except (ui.UIErr, ui.ActionFailed):
+        except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
             logging.exception("Application labels: unable to select target")
             actions.labels.hide()
             app.notify(
@@ -259,6 +458,7 @@ class ApplicationLabelSession(LabelSession):
         if self.refresh_job is not None:
             cron.cancel(self.refresh_job)
             self.refresh_job = None
+        self._cancel_deferred()
         super().stop()
 
 
@@ -277,7 +477,15 @@ def _show_application_numbers():
         app.notify("Application control labels", "There is no active application.")
         return
 
-    _prepare_accessibility_interfaces(owner)
+    try:
+        _prepare_accessibility_interfaces(owner)
+    except (RuntimeError, ui.UIErr):
+        logging.exception("Application labels: unable to enable AX interfaces")
+        app.notify(
+            "Application control labels",
+            f"Unable to enable accessibility interfaces for {owner.name}.",
+        )
+        return
 
     _session = ApplicationLabelSession(owner)
     _session.start()
@@ -302,7 +510,18 @@ class Actions:
     def accessibility_set_interfaces(enabled: bool, force: bool = False):
         """Enable or disable supported AX interfaces for the active app."""
         owner = ui.active_app()
-        status, changed = _set_accessibility_interfaces(owner, enabled, force=force)
+        if owner is None:
+            app.notify("Accessibility interfaces", "There is no active application.")
+            return
+        try:
+            status, changed = _set_accessibility_interfaces(owner, enabled, force=force)
+        except (RuntimeError, ui.UIErr):
+            logging.exception("Accessibility interfaces: unable to update")
+            app.notify(
+                "Accessibility interfaces",
+                f"Unable to update accessibility interfaces for {owner.name}.",
+            )
+            return
         if status == "disallowed":
             app.notify(
                 "Accessibility interfaces",
@@ -324,11 +543,9 @@ class LabelOverrides:
             _session.select(label)
 
     def hide():
-        if _session is not None and _session.preserve_hide:
-            actions.next()
-            return
-        _stop()
         actions.next()
+        if _session is not None and not _session.preserve_hide:
+            _stop()
 
 
 def _event_pid(event):
