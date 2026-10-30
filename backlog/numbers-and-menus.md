@@ -1025,8 +1025,7 @@ after 60 s idle; the same query succeeded moments later).
   presses raised `ActionFailed`); it was restored and checked (`AXValue` 0 → 1).
 
 Evidence: `files/n10/mutation_probe.py` / `.json` in the session folder.
-Remedy options are not chosen yet: retry the query once, query with
-`visible_only=False` and filter frames ourselves, or report it to Talon.
+Remedy chosen: filter frames ourselves (N12c).
 
 **Checklist:**
 
@@ -1036,7 +1035,90 @@ Remedy options are not chosen yet: retry the query once, query with
 - [x] Live staged rendering and timing measured, tab restored.
 - [ ] Split editor groups.
 - [x] Root cause of `AttributeError: AXRole`: DOM mutation during the walk.
-- [ ] Choose and verify a remedy.
+- [x] Choose and verify a remedy: N12c.
+
+### N12c. Replace Talon's visibility pruning with a surface clip
+
+**Status:** implemented 2026-10-30 as `user.accessibility_clip_to_surface`
+(default false, VS Code true). End-to-end check through the spoken command
+is still open (see checklist).
+
+**Goal:** stop `AttributeError: AXRole` (N12b) without losing visible
+controls or numbering hidden ones, and without being slower.
+
+**Scope:** `_query_controls` in `accessibility/inventory.py`, the VS Code
+`.talon` setting, runtime tests. Other apps keep Talon's pruning.
+
+**What Talon's pruning does (black box):** `MacExecutor.prune_visible(self,
+relement) -> bool` is compiled, but can be called directly with a
+`RichElement`. For the two controls it pruned in window 8919, it returned
+`False` for the element alone and `True` once ancestors were supplied.
+The pruned `AXToolbar` (y 833–855) has no positive overlap with its
+grandparent `interactive-input-part` (y 855–989). Across every state below,
+no control Talon kept had an ancestor without overlap, and every control it
+dropped had one. The hypothesis "keep a node only if it overlaps every
+ancestor frame" is consistent with all observations. It is not proven
+beyond them.
+
+**Rule tested (R0):** `visible_only=False`, existing role, enabled, hidden,
+and frame filters, plus positive overlap with the queried window or menu
+frame. Elements removed mid-query read `None` for every attribute through
+`get()` and are skipped.
+
+**Evidence** (`files/n10/own_filter_*.py` / `.json`):
+
+| State | Talon | R0 | Only R0 | Only Talon | Talon s | R0 s |
+|---|---:|---:|---:|---:|---:|---:|
+| 8919 editor in front | 134 | 136 | 2 | 0 | 1.18–1.20 | 0.41–0.42 |
+| 8919 browser in front (workbench + page) | 473 | 475 | 2 | 0 | 1.72 | 0.80–0.89 |
+| mokuro panel shown | 138 | 138 | 0 | 0 | — | — |
+| mokuro panel hidden | 126 | 126 | 0 | 0 | — | — |
+| `_controls` production code, 8919 (×3) | 137 | 139 | 2 | 0 | 1.30–2.02 | 0.45–0.50 |
+| `_controls` production code, mokuro (×3) | 141 | 141 | 0 | 0 | 1.17–2.23 | 0.45–0.47 |
+
+- The 2 extra controls are the chat's **15 Files +3139 −273** and **2
+  Artifacts** buttons. A Talon screen capture of that strip shows both are
+  drawn on screen at those frames, so Talon's pruning was hiding visible
+  controls.
+- A centre hit test is not a reliable visibility check here: **2 Artifacts**
+  hit the chat `AXList` overlay all 3 times, and **Session Changes** missed
+  once while the chat was streaming.
+- Mutation stress in mokuro: 30 `Toggle Panel` presses (the button is looked
+  up again before each press, because the old element goes stale), with
+  pruned and R0 queries alternating.
+
+  | Query path | Runs | `AXRole` errors | Mean s |
+  |---|---:|---:|---:|
+  | Talon pruning | 19 | 19 | 0.53 |
+  | R0 | 18 | 0 | 0.49 |
+
+  R0 skipped 74 removed elements. The panel ended in its original state
+  (`AXValue` 1).
+- The `_controls` rows ran the committed code in the background with probe
+  settings, because Talon applies `.talon` settings only for the active app.
+
+**Risks and mitigations:**
+
+- Native apps clip scroll views, which a window-frame overlap does not
+  detect. The setting stays off by default and is enabled only for VS Code.
+  Compare per app before enabling it elsewhere.
+- Web content scrolled inside an inner container would not be clipped. None
+  appeared in the tested VS Code states (Only R0 = 2 visible controls).
+  Settings editor and long-list states remain untested.
+
+**Rollback:** set `user.accessibility_clip_to_surface = false` in
+`inventory_vscode.talon`, or revert the commit.
+
+**Checklist:**
+
+- [x] Talon pruning rule characterised by calling `prune_visible` directly.
+- [x] R0 vs Talon equivalence in 4 layouts; differences shown visible on screen.
+- [x] Mutation stress: 0 of 18 R0 queries failed vs 19 of 19 pruned.
+- [x] Setting, VS Code enablement, and unit tests (53 pass, ruff clean).
+- [x] Production `_controls` verified in both VS Code windows.
+- [ ] End-to-end spoken `show application numbers` with VS Code in front
+  (render timing, browser tab append). Not run: another app was active.
+- [ ] Settings editor and long scrolled lists.
 
 ### N13. Depth caps, measured against the ground truth
 
