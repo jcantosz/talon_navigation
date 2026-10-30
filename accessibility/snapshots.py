@@ -48,10 +48,48 @@ def _json_value(value):
     return repr(value)
 
 
-def snapshot_data(application, surfaces, ui_error, redacted):
+def _redact(attributes):
+    return {
+        key: (
+            "<redacted>"
+            if key in REDACTED_ATTRIBUTES and value not in (None, "")
+            else value
+        )
+        for key, value in attributes.items()
+    }
+
+
+def redact_snapshot(data):
+    return {
+        **data,
+        "application": {**data["application"], "name": "<redacted>"},
+        "redacted": True,
+        "nodes": [
+            {**node, "attributes": _redact(node["attributes"])}
+            for node in data["nodes"]
+        ],
+    }
+
+
+def is_partial(data):
+    return bool(data["errors"]) or any(
+        surface["errors"] or surface["truncated"] for surface in data["surfaces"]
+    )
+
+
+def snapshot_data(application, surfaces, ui_error, redacted=False):
     nodes = []
     errors = []
+    surface_summaries = []
     for surface_name, inventory in surfaces:
+        surface_summaries.append(
+            {
+                "surface": surface_name,
+                "nodes": len(inventory.nodes),
+                "errors": list(inventory.errors),
+                "truncated": inventory.truncated,
+            }
+        )
         for node in inventory.nodes:
             try:
                 attributes = {
@@ -64,15 +102,6 @@ def snapshot_data(application, surfaces, ui_error, redacted):
                     f"{surface_name}:{node.path}: {type(error).__name__}: {error}"
                 )
                 attributes = {}
-            if redacted:
-                attributes = {
-                    key: (
-                        "<redacted>"
-                        if key in REDACTED_ATTRIBUTES and value not in (None, "")
-                        else value
-                    )
-                    for key, value in attributes.items()
-                }
             nodes.append(
                 {
                     "surface": surface_name,
@@ -83,17 +112,19 @@ def snapshot_data(application, surfaces, ui_error, redacted):
                 }
             )
 
-    return {
+    data = {
         "application": {
-            "name": "<redacted>" if redacted else application.name,
+            "name": application.name,
             "bundle": application.bundle,
             "pid": application.pid,
         },
         "captured_at": datetime.now().astimezone().isoformat(),
-        "redacted": redacted,
+        "redacted": False,
+        "surfaces": surface_summaries,
         "nodes": nodes,
         "errors": errors,
     }
+    return redact_snapshot(data) if redacted else data
 
 
 def _write_atomic(path, data):
@@ -118,12 +149,10 @@ def write_snapshots(directory, application, surfaces, ui_error):
         character if character.isalnum() or character in ".-_" else "_"
         for character in bundle
     )
+    data = snapshot_data(application, surfaces, ui_error)
     paths = []
-    for redacted, suffix in ((False, "full"), (True, "redacted")):
+    for payload, suffix in ((data, "full"), (redact_snapshot(data), "redacted")):
         path = directory / f"{safe_bundle}.{suffix}.json"
-        _write_atomic(
-            path,
-            snapshot_data(application, surfaces, ui_error, redacted),
-        )
+        _write_atomic(path, payload)
         paths.append(path)
-    return paths
+    return paths, is_partial(data)

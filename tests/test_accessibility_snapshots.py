@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "snapshots",
@@ -28,14 +29,15 @@ class Element:
 
 
 class SnapshotTests(unittest.TestCase):
-    def surfaces(self):
+    def surfaces(self, errors=(), truncated=False):
         node = SimpleNamespace(
             element=Element(),
             path=(0, 1),
             actions=("AXPress",),
             matches_show_numbers=True,
         )
-        return [("focused-window", SimpleNamespace(nodes=(node,)))]
+        inventory = SimpleNamespace(nodes=(node,), errors=errors, truncated=truncated)
+        return [("focused-window", inventory)]
 
     def test_redacted_snapshot_preserves_structure_and_removes_text(self):
         application = SimpleNamespace(name="Slack", bundle="com.example", pid=42)
@@ -54,9 +56,11 @@ class SnapshotTests(unittest.TestCase):
     def test_writes_full_and_redacted_files_per_bundle(self):
         application = SimpleNamespace(name="Slack", bundle="com.example", pid=42)
         with tempfile.TemporaryDirectory() as directory:
-            paths = snapshots.write_snapshots(
+            paths, partial = snapshots.write_snapshots(
                 Path(directory), application, self.surfaces(), UIError
             )
+
+            self.assertFalse(partial)
 
             self.assertEqual(
                 {path.name for path in paths},
@@ -72,6 +76,54 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(
                 redacted["nodes"][0]["attributes"]["AXTitle"], "<redacted>"
             )
+            self.assertEqual(full["captured_at"], redacted["captured_at"])
+
+    def test_collection_errors_and_truncation_mark_snapshot_partial(self):
+        application = SimpleNamespace(name="Slack", bundle="com.example", pid=42)
+        surfaces = self.surfaces(errors=("root/3: UIError: gone",), truncated=True)
+        with tempfile.TemporaryDirectory() as directory:
+            _, partial = snapshots.write_snapshots(
+                Path(directory), application, surfaces, UIError
+            )
+            redacted = json.loads(
+                (Path(directory) / "com.example.redacted.json").read_text()
+            )
+
+        self.assertTrue(partial)
+        self.assertEqual(
+            redacted["surfaces"],
+            [
+                {
+                    "surface": "focused-window",
+                    "nodes": 1,
+                    "errors": ["root/3: UIError: gone"],
+                    "truncated": True,
+                }
+            ],
+        )
+
+    def test_full_and_redacted_share_one_element_dump(self):
+        application = SimpleNamespace(name="Example", bundle="com.example", pid=42)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                Element, "dump", autospec=True, return_value={"AXTitle": "one"}
+            ) as dump,
+        ):
+            snapshots.write_snapshots(
+                Path(directory), application, self.surfaces(), UIError
+            )
+
+        dump.assert_called_once()
+
+    def test_dump_failure_is_preserved_and_marks_capture_partial(self):
+        application = SimpleNamespace(name="Example", bundle="com.example", pid=42)
+        with patch.object(Element, "dump", side_effect=UIError("unavailable")):
+            data = snapshots.snapshot_data(application, self.surfaces(), UIError)
+
+        self.assertTrue(snapshots.is_partial(data))
+        self.assertIn("UIError: unavailable", data["errors"][0])
+        self.assertEqual(data["nodes"][0]["attributes"], {})
 
 
 if __name__ == "__main__":
