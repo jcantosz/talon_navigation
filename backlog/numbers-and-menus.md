@@ -1040,8 +1040,9 @@ Remedy chosen: filter frames ourselves (N12c).
 ### N12c. Replace Talon's visibility pruning with a surface clip
 
 **Status:** implemented 2026-10-30 as `user.accessibility_clip_to_surface`
-(default false, VS Code true). End-to-end check through the spoken command
-is still open (see checklist).
+(default false, VS Code true). Live action-path checks passed; microphone
+recognition remains untested. Settings/scrolled-list checks ran and found
+an unresolved view-reset failure (see follow-up and N12e).
 
 **Goal:** stop `AttributeError: AXRole` (N12b) without losing visible
 controls or numbering hidden ones, and without being slower.
@@ -1114,11 +1115,259 @@ frame. Elements removed mid-query read `None` for every attribute through
 - [x] Talon pruning rule characterised by calling `prune_visible` directly.
 - [x] R0 vs Talon equivalence in 4 layouts; differences shown visible on screen.
 - [x] Mutation stress: 0 of 18 R0 queries failed vs 19 of 19 pruned.
+  This holds for VS Code panel toggles only; R0 failed 4 of 5 runs in
+  Firefox (N12d), so it is not a general mutation fix.
 - [x] Setting, VS Code enablement, and unit tests (53 pass, ruff clean).
 - [x] Production `_controls` verified in both VS Code windows.
-- [ ] End-to-end spoken `show application numbers` with VS Code in front
-  (render timing, browser tab append). Not run: another app was active.
-- [ ] Settings editor and long scrolled lists.
+- [x] Live `accessibility_show_application_numbers` action with VS Code in
+  front; hidden pages excluded, both duplicate browser tabs tested, original
+  tab restored. This invokes the command's action, not microphone recognition.
+- [x] Run Settings and long-list comparisons, including a real numbered
+  activation of the search field; findings below.
+- [ ] Pass Settings state-preservation and extra-control visibility gates (N12e).
+
+**Live follow-up (2026-10-30):**
+
+| Selected editor tab | First numbers | First render returned (s) | Final numbers | Initial number prefix stable |
+|---|---:|---:|---:|---|
+| Editor | 138 | 0.951 | 138 | yes |
+| Browser tab 0 | 116 | 0.707 | 388 | yes |
+| Browser tab 1 | 120 | 0.778 | 473 | yes |
+| Editor restored | 138 | 0.908 | 138 | yes |
+
+Both settings were enabled through the real VS Code context. Final inventories
+contained only the workbench when the browser tabs were hidden, and the
+workbench plus one browser web area when either browser tab was selected.
+Deferred work was complete in every final sample. The render instrumentation
+captured the first render but not the append render, so these results do not
+establish time to final paint or time to final numbers. No microphone input was
+used. Evidence: session `files/n10/verify_n12c.py` and
+`verify_n12c_results.json`.
+
+An attempt stopped at its focus guard while the screen was locked
+(`loginwindow`, window -1). After the user unlocked and approved resuming,
+the remaining tests ran in mokuro (7048), not this conversation's window.
+
+**Settings and scrolled-list follow-up (2026-10-30):**
+
+Settings opens as a modal editor in this build. The test did not assume it
+was a regular editor tab. No preference value or file content was edited.
+
+| State, workbench query only | Talon | Surface | Only surface | Only Talon | Talon s | Surface s |
+|---|---:|---:|---:|---:|---:|---:|
+| Commonly Used, initial | 19 | 25 | 6 | 0 | 0.241 | 0.100 |
+| Commonly Used, later comparison | 19 | 25 | 6 | 0 | 0.228 | 0.096 |
+| Search `editor`, 558 results, top | 19 | 26 | 7 | 0 | 0.405 | 0.154 |
+| Search `editor`, after confirmed forward scroll | 19 | 27 | 8 | 0 | 0.381 | 0.152 |
+| After invoking application numbers again | 19 | 25 | 6 | 0 | 0.226 | 0.096 |
+
+- These queries used the same root, unlimited depth and 10-second budget.
+  Their observed times were well below that budget.
+- Selecting **Search settings** by its real number (11) focused the expected
+  `AXTextArea`; focus identity was verified before entering the search query.
+- Forward scrolling was verified by screenshots: the viewport changed from
+  Font Size/Format On Save to Mouse Wheel Zoom/Format On Paste/Accessibility
+  Support. The AX inventory also changed: seven unique role/name entries
+  were added, seven removed, and three shared entries changed frames.
+  Earlier positive-direction scroll requests did not establish this
+  forward-scroll state; do not infer successful scrolling from a request alone.
+- Every surface-only difference was a **More Actions** popup. Ancestor trails
+  were saved, but whether these hover-style controls should be numbered is
+  unresolved. Absence of a zero-sized ancestor does not prove visibility.
+  The new collector also retained partially visible 1-pixel-high controls;
+  positive overlap permits these, and Talon retained the corresponding
+  checkbox too. Usability is not established by set inclusion.
+- The live command produced 28 labels in the Settings modal (including
+  native window controls), with render-return timings of 0.133–0.155 s.
+  **It did not preserve the view:** after the filtered, scrolled state,
+  invoking `accessibility_show_application_numbers` returned Settings to
+  blank search / Commonly Used. The screenshot and subsequent AX inventory
+  agree on that reset. The particular step causing it is not isolated;
+  do not attribute it to activation writes, querying, rendering, or pruning
+  without an intervention test.
+- An earlier screenshot/AX mismatch was observed during this sequence.
+  Stale provider geometry was initially suspected, but the verified
+  view-reset behavior means that suspicion is not an established cause.
+- The modal was closed via its unique **Close Modal Editor (Escape)**
+  control. Focus returned to window 8919; instrumentation was removed.
+  The probe's regular-tab selector returned an empty list in mokuro, so its
+  empty-list comparison is not independent proof of editor-tab identity.
+- Focused automated regression suite: **53 tests and 30 subtests passed**.
+  These mocks do not cover the modal-reset behavior.
+
+Evidence: session `files/n10/verify_n12c_results.json`,
+`compare-settings-top.png`, `compare-settings-long-forward.png`,
+`settings-numbered.png`, and the ancestor trails in the comparison records.
+The comparison data supports faster collection without losses relative to
+Talon in these states, **not** blanket visibility correctness or Settings
+state-preservation certification.
+
+### N12d. Compare both visibility filters across applications
+
+**Status:** native and browser spikes done; Electron (Slack) not run.
+**Decision so far:** keep Talon's pruning as the global default and keep
+surface clipping enabled only for VS Code. **Effort:** S per application.
+The filter implementation is generic; only its enablement is app-specific.
+
+**Goal:** determine empirically whether surface clipping can replace Talon's
+visibility pruning generally, or which applications require which policy.
+
+**Scope:** separate bounded read-only spikes for one native app with nested
+scroll views, one browser using a non-sensitive local fixture, and one other
+Electron app (for example Slack with a user-approved test channel). Compare
+both query paths under identical roots, roles, depth and timeout. No message
+sending, document edits, account actions or blanket application overrides.
+
+**Steps:**
+
+1. Select the app, safe fixture and important controls with the user; record
+   starting focus, selected view, scroll position and panes for restoration.
+2. Compare Talon pruning and surface clipping at the top, middle and bottom
+   of a long list/document; repeat with a nested scroll area and one obscured
+   or collapsed pane. Exercise menus separately with their own clip frame.
+3. Record per-stage query/filter/render times, errors, counts and element-set
+   differences. Use three quiet repetitions, plus a bounded mutation run.
+   Check for timeout truncation rather than treating a returned list as complete.
+4. Inspect every difference against a screenshot and the AX ancestor chain.
+   Hit tests and count equality alone are not visibility ground truth.
+5. Test numbered activation of approved controls, including stale targets.
+   Record a per-app decision; decide on a global default only after the matrix.
+
+**Success criteria and evidence:**
+
+- No lost user-designated visible controls and no numbered controls clipped
+  out of their viewport in any sampled state; all differences classified.
+- No wrong-target activation; errors surfaced explicitly during mutation.
+- Measured timings and complete-set evidence show whether the simpler filter
+  is acceptably fast and reliable. A result that retains Talon's policy is valid.
+- Persist a state-by-state table, screenshots/AX evidence for differences,
+  restoration checks, and a decision with explicitly untested cases.
+
+**Risks and mitigations:** native scroll clipping, web overflow, overlays and
+  virtualized rows differ across providers. Test them directly; retain the
+  existing default until evidence supports changing it. Avoid private pages
+  and real message content by using fixtures and approved views.
+
+**Rollback plan:** probes must not persist settings. Restore selected view,
+scroll position, pane state, original focus and hide labels; remove temporary
+instrumentation. Revert any later per-app enablement independently.
+
+**Results** (same root, all roles, unlimited depth, 10 s budget; Talon =
+`visible_only=True`, clip = `visible_only=False` plus window-frame overlap):
+
+| App / state | Talon | Clip | Only Talon | Only clip | Talon s | Clip s |
+|---|---:|---:|---:|---:|---:|---:|
+| Finder `/Applications` icon view, top/mid/bottom | 12/12/11 | 12/12/11 | 0 | 0 | 0.09–0.18 | 0.38–0.48 |
+| Finder list view, 80-folder fixture, top/mid/bottom | 33/37/34 | 34/40/37 | 0 | 1–3 | 0.23–0.31 | **8.5–9.0** |
+| Firefox local fixture, spatial view (fits window) | 397 | 397 | 0 | 0 | 1.2–1.3 | 0.69–0.72 |
+| Firefox fixture hierarchy, top | 31 | 31 | 0 | 0 | 0.23–0.30 | 1.45 |
+| Firefox fixture hierarchy, middle | 42 | 28 | 14 | 0 | 0.56–0.61 | 1.44 |
+| Firefox fixture hierarchy, bottom | 36 | 25 | 11 | 0 | 0.28–0.34 | 1.41–1.52 |
+
+Classification of every difference:
+
+- **Finder list, clip-only (1–3 per state): wrong.** They are
+  `AXDisclosureTriangle`s of rows scrolled under the toolbar (y 152–192) or
+  path bar (y 611–622), outside the scroll area (y 219–603). The screenshot
+  shows them hidden. Clip checks only the window frame, not the native
+  scroll-view clip, so it numbers hidden controls here.
+- **Firefox hierarchy, Talon-only (14 and 11): Talon is wrong.** Every one
+  has a frame far above the viewport (for example the filter field at
+  y −15,679 and −32,624; window y 33–1032). The screenshot shows none of
+  them. They are the page header and nested section headers (x indent steps
+  by 12 px) enclosing the scrolled-in section. This matches Talon's rule,
+  measured in N12c: it compares a node's frame with its ancestors', not with
+  the window. Clip correctly drops them.
+- **Speed:** clip walks every unpruned node. That is acceptable in VS Code,
+  but it took 9 s in the Finder list (truncated under the default 1 s
+  timeout) and about 5× longer than Talon on the long Firefox page.
+- **Mutation** (Firefox fixture, 10 Spatial/Hierarchy toggles while
+  alternating queries): Talon failed 5 of 6 runs, clip **4 of 5**, both with
+  `AttributeError: AXRole`. The clip traceback is in Talon's selector
+  matching (`axquery/mac.py match_element`), not in `prune_visible`. The
+  VS Code result in N12c therefore does not generalise.
+
+Neither filter is correct everywhere. Talon over-includes ancestors of
+scrolled web content; clip over-includes native scroll-view content and is
+slow on large native lists. A general fix would need the nearest scroll
+area's frame as the clip (a follow-up spike, not started), not a different
+global default.
+
+Restoration: the Finder scroll position was restored and the window closed;
+`/tmp/xapp_fixture` was deleted; the Firefox test window was closed, leaving
+the original Mokuro window as the only window of that instance. Incident:
+in the first Firefox attempt a new window focused the page, so the typed
+fixture URL went to a link-hint extension as keystrokes. Escape was pressed,
+the window closed, and the original window's title verified unchanged. Later
+attempts verified URL-bar focus before typing.
+
+Untested: Slack (not running), a bounded run of numbered activation per app,
+menus with their own clip frame, and obscured/collapsed panes outside VS Code.
+
+Evidence: session `files/n10/xapp_<state>.json` and `.png`
+(`finder_*`, `finder_list_*`, `firefox_*`, `firefox_h_*`),
+`xapp_firefox_mutation.json`, `xapp_firefox_mutation2.json`, probes
+`xapp.py`, `ff_fixture.py`, `ff_mutation.py`.
+
+**Checklist:**
+
+- [x] Native app spike and decision: keep Talon pruning (clip numbers hidden
+  rows and is about 30× slower in list view).
+- [x] Browser/local-fixture spike and decision: keep Talon pruning by default.
+  Clip is more correct on scrolled pages but about 5× slower, and it does not
+  avoid mutation errors.
+- [ ] Other Electron app spike and decision (Slack not running).
+- [x] Compare results and choose: per-app policy; global default unchanged.
+- [ ] Follow-up spike: clip to the nearest scroll area instead of the window.
+
+### N12e. Preserve the Settings view while showing numbers
+
+**Status:** open; reproduced during N12c verification. **Effort:** S for
+isolation; remediation effort unknown until the resetting step is identified.
+
+**Goal:** invoking application numbers must not clear a Settings search,
+change its selected category, or reset its scroll position.
+
+**Scope:** mokuro's Settings modal and the existing action path only.
+Keep this separate from N12d's cross-application default decision.
+
+**Steps:**
+
+1. Recreate a non-empty Settings query and a visibly scrolled viewport.
+   Record query, viewport anchors, focused element and screenshot.
+2. In at most two bounded diagnostic rounds, run activation preparation,
+   collection, and native label rendering as separate interventions.
+   Recreate and verify the initial state before each intervention.
+   Compare both pruning modes only after isolating the responsible step.
+3. If the resetting step is identified, choose the smallest supported
+   remedy and add focused regression coverage. If not, report the evidence
+   to the user before further investigation.
+4. Repeat the real command from the filtered/scrolled view; check numbered
+   targets against visible controls. Separately test a More Actions popup
+   and dismiss its menu without changing a preference.
+
+**Success criteria and evidence:** search text, viewport anchors and focus
+remain unchanged except for explicitly selected controls; correct labels
+appear without reintroducing hidden browser pages or the AXRole failure.
+Save before/after screenshots, AX identities/frames, intervention results,
+and a completed checklist. Classify hover-only and partial-control behavior
+explicitly rather than treating Talon's result as a visibility oracle.
+
+**Risks and mitigations:** AX activation or rendering could affect provider
+state, but neither is established as the cause. Isolate rather than guess.
+Do not toggle a preference or touch unsaved editors.
+
+**Rollback plan:** remove instrumentation, hide labels, close only the
+test-opened Settings modal, and restore the original focus. Keep any later
+production remedy independently revertible.
+
+**Checklist:**
+
+- [x] Capture the command-level reset and restore the test UI.
+- [ ] Isolate the resetting intervention within two bounded rounds.
+- [ ] Implement and verify a supported remedy, or report a blocked finding.
+- [ ] Verify hover-only More Actions and partially visible controls.
+- [ ] Pass the filtered/scrolled real-command check.
 
 ### N13. Depth caps, measured against the ground truth
 
