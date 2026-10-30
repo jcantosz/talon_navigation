@@ -61,6 +61,7 @@ class FakeTalon:
             "user.accessibility_query_max_depth": 0,
             "user.accessibility_query_timeout": 1.0,
             "user.accessibility_defer_web_areas": False,
+            "user.accessibility_clip_to_surface": False,
             "user.accessibility_activation_disallowed_bundles": "",
         }
         self.query_results = []
@@ -466,6 +467,53 @@ class ApplicationLabelTests(unittest.TestCase):
         at.assert_not_called()
         self.talon.cron.after.assert_not_called()
         self.assertEqual(self.module._session.targets, [self.button, self.popup])
+
+    def test_surface_clip_replaces_talon_pruning(self):
+        self.talon.settings["user.accessibility_clip_to_surface"] = True
+        self.window.attrs["AXFrame"] = frame(x=0, y=0, width=500, height=500)
+        outside = Element(AXRole="AXButton", AXFrame=frame(x=600))
+        touching = Element(AXRole="AXButton", AXFrame=frame(x=500))
+        removed = Element(AXRole="AXButton", AXFrame=frame())
+        removed.attrs = {}
+        query = Mock(return_value=[removed, outside, touching, self.button])
+        with patch.object(self.module.axquery, "query_all", query):
+            self.actions.accessibility_show_application_numbers()
+        self.assertFalse(query.call_args.kwargs["visible_only"])
+        self.assertEqual(self.module._session.targets, [self.button])
+
+    def test_surface_clip_without_frame_is_surfaced(self):
+        self.talon.settings["user.accessibility_clip_to_surface"] = True
+        query = Mock(return_value=[self.button])
+        with patch.object(self.module.axquery, "query_all", query):
+            self.actions.accessibility_show_application_numbers()
+        query.assert_not_called()
+        self.assertIsNone(self.module._session)
+        self.talon.notify.assert_called_with(
+            "Application control labels",
+            "Unable to query the focused accessibility window.",
+        )
+
+    def test_deferred_web_areas_use_the_window_clip(self):
+        query = self.staged_window()
+        self.talon.settings["user.accessibility_clip_to_surface"] = True
+        self.window.attrs["AXFrame"] = frame(x=0, y=0, width=500, height=500)
+        below = Element(AXRole="AXLink", AXFrame=frame(y=900), AXParent=self.page)
+        results = {
+            id(self.workbench): [self.button],
+            id(self.page): [self.popup, below],
+        }
+        query.side_effect = lambda *args, root, **kwargs: results[id(root)]
+        hit = Element(AXRole="AXStaticText", AXParent=self.page)
+        with patch.object(self.module.axquery, "query_all", query):
+            with patch.object(self.module.ui, "element_at", return_value=hit):
+                self.actions.accessibility_show_application_numbers()
+                self.run_deferred()
+        self.assertEqual(
+            self.module._session.targets, [self.close, self.button, self.popup]
+        )
+        self.assertTrue(
+            all(call.kwargs["visible_only"] is False for call in query.call_args_list)
+        )
 
     def test_web_area_cache_uses_equality_for_unhashable_elements(self):
         class UnhashableElement(Element):

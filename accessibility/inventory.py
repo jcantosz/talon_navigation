@@ -37,6 +37,15 @@ mod.setting(
         "controls from other web areas whose centers are visible."
     ),
 )
+mod.setting(
+    "accessibility_clip_to_surface",
+    type=bool,
+    default=False,
+    desc=(
+        "Skip Talon's visibility pruning and keep controls whose frames overlap "
+        "the queried window or menu; tolerates elements removed during the query."
+    ),
+)
 ctx = Context()
 ctx.matches = "os: mac"
 labels_ctx = Context()
@@ -119,16 +128,34 @@ def _add_control(element, controls):
         controls.append(element)
 
 
-def _query_controls(root, controls, budget):
+def _query_controls(root, controls, budget, clip=None):
+    """Add root's controls; with a clip frame, filter overlap instead of pruning."""
     max_depth, timeout = budget
     for element in axquery.query_all(
         QUERY,
         root=root,
-        visible_only=True,
+        visible_only=clip is None,
         max_depth=max_depth,
         timeout=timeout,
     ):
-        _add_control(element, controls)
+        if clip is None or _overlaps(element.get("AXFrame"), clip):
+            _add_control(element, controls)
+
+
+def _surface_clip(surface):
+    if not settings.get("user.accessibility_clip_to_surface"):
+        return None
+    if not _has_usable_frame(surface):
+        raise RuntimeError("The accessibility surface has no usable frame.")
+    return surface.get("AXFrame")
+
+
+def _overlaps(frame, clip):
+    return (
+        frame is not None
+        and min(frame.x + frame.width, clip.x + clip.width) > max(frame.x, clip.x)
+        and min(frame.y + frame.height, clip.y + clip.height) > max(frame.y, clip.y)
+    )
 
 
 def _split_web_areas(window):
@@ -169,15 +196,16 @@ def _controls(owner):
     controls = []
     deferred = []
     for kind, root in focused_surfaces(owner):
+        clip = _surface_clip(root)
         split = _split_web_areas(root) if defer and kind == "focused-window" else None
         if split is None:
-            _query_controls(root, controls, budget)
+            _query_controls(root, controls, budget, clip)
             continue
         native, primary, others = split
         for element in native:
             _add_control(element, controls)
-        _query_controls(primary, controls, budget)
-        deferred.extend(others)
+        _query_controls(primary, controls, budget, clip)
+        deferred.extend((area, clip) for area in others)
     return controls, deferred
 
 
@@ -186,9 +214,9 @@ def _deferred_controls(areas, controls):
     budget = _query_budget()
     combined = list(controls)
     cache = []
-    for area in areas:
+    for area, clip in areas:
         if _has_usable_frame(area) and _in_visible_web_area(area, cache):
-            _query_controls(area, combined, budget)
+            _query_controls(area, combined, budget, clip)
     return combined[len(controls) :]
 
 
