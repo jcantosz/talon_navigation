@@ -1204,7 +1204,7 @@ state-preservation certification.
 
 ### N12d. Compare both visibility filters across applications
 
-**Status:** native and browser spikes done; Electron (Slack) not run.
+**Status:** native, browser and Electron (Slack current view) spikes done.
 **Decision so far:** keep Talon's pruning as the global default and keep
 surface clipping enabled only for VS Code. **Effort:** S per application.
 The filter implementation is generic; only its enablement is app-specific.
@@ -1263,6 +1263,7 @@ instrumentation. Revert any later per-app enablement independently.
 | Firefox fixture hierarchy, top | 31 | 31 | 0 | 0 | 0.23–0.30 | 1.45 |
 | Firefox fixture hierarchy, middle | 42 | 28 | 14 | 0 | 0.56–0.61 | 1.44 |
 | Firefox fixture hierarchy, bottom | 36 | 25 | 11 | 0 | 0.28–0.34 | 1.41–1.52 |
+| Slack, current DM view (no scrolling; read-only) | 54 | 70 | 0 | 16 | 0.24–0.36 | 0.14–0.18 |
 
 Classification of every difference:
 
@@ -1278,6 +1279,14 @@ Classification of every difference:
   by 12 px) enclosing the scrolled-in section. This matches Talon's rule,
   measured in N12c: it compares a node's frame with its ancestors', not with
   the window. Clip correctly drops them.
+- **Slack, clip-only (16): 15 visible, Talon wrong.** The screenshot shows
+  the rail's Create new, focus mode and user buttons; Edit Profile, Upload
+  Profile Photo, the profile image and name; Add channels; Jump to date
+  (partly under a "New" tip); the message author and timestamp; and four
+  canvas links. Talon pruned them because an ancestor reports a degenerate
+  frame (`AXList` 1×1, `AXGroup` 0×0 or 754×9) or a non-overlapping row.
+  The 16th, the "color theme" link, sits under the canvas footer card.
+  Neither filter detects in-app occlusion.
 - **Speed:** clip walks every unpruned node. That is acceptable in VS Code,
   but it took 9 s in the Finder list (truncated under the default 1 s
   timeout) and about 5× longer than Talon on the long Firefox page.
@@ -1288,10 +1297,11 @@ Classification of every difference:
   VS Code result in N12c therefore does not generalise.
 
 Neither filter is correct everywhere. Talon over-includes ancestors of
-scrolled web content; clip over-includes native scroll-view content and is
-slow on large native lists. A general fix would need the nearest scroll
-area's frame as the clip (a follow-up spike, not started), not a different
-global default.
+scrolled web content and drops visible Slack controls under degenerate
+ancestor frames; clip over-includes native scroll-view content and is slow
+on large native lists. Clip is better in both Electron apps tested (VS Code,
+Slack). A general fix would need the nearest scroll area's frame as the clip
+(a follow-up spike, not started), not a different global default.
 
 Restoration: the Finder scroll position was restored and the window closed;
 `/tmp/xapp_fixture` was deleted; the Firefox test window was closed, leaving
@@ -1301,11 +1311,14 @@ fixture URL went to a link-hint extension as keystrokes. Escape was pressed,
 the window closed, and the original window's title verified unchanged. Later
 attempts verified URL-bar focus before typing.
 
-Untested: Slack (not running), a bounded run of numbered activation per app,
-menus with their own clip frame, and obscured/collapsed panes outside VS Code.
+Untested: Slack while scrolled (skipped because scrolling may mark messages
+read) and under mutation; numbered activation per app; menus with their own
+clip frame; and obscured/collapsed panes outside VS Code. Slack's AX
+attributes were enabled for the probe as the command does, then set back to
+`False`.
 
 Evidence: session `files/n10/xapp_<state>.json` and `.png`
-(`finder_*`, `finder_list_*`, `firefox_*`, `firefox_h_*`),
+(`finder_*`, `finder_list_*`, `firefox_*`, `firefox_h_*`, `slack_current`),
 `xapp_firefox_mutation.json`, `xapp_firefox_mutation2.json`, probes
 `xapp.py`, `ff_fixture.py`, `ff_mutation.py`.
 
@@ -1316,7 +1329,9 @@ Evidence: session `files/n10/xapp_<state>.json` and `.png`
 - [x] Browser/local-fixture spike and decision: keep Talon pruning by default.
   Clip is more correct on scrolled pages but about 5× slower, and it does not
   avoid mutation errors.
-- [ ] Other Electron app spike and decision (Slack not running).
+- [x] Other Electron app spike: Slack's current view favours clip (15 more
+  visible controls, faster). It is a candidate for per-app enablement in a
+  Slack `.talon` file, pending a scrolled-state check and numbered activation.
 - [x] Compare results and choose: per-app policy; global default unchanged.
 - [ ] Follow-up spike: clip to the nearest scroll area instead of the window.
 
