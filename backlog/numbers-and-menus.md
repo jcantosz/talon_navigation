@@ -1002,8 +1002,31 @@ pages side by side were not tested.
 **Open — intermittent `AttributeError: AXRole`:** raised inside Talon's
 `axquery` `prune_visible` (`talon/mac/ui.py __getattr__`). Seen on the first
 show of 2 of 2 live batches and 1 of 8 idle-then-query probes (workbench root
-after 60 s idle; the same query succeeded moments later). Investigated
-separately below.
+after 60 s idle; the same query succeeded moments later).
+
+**Cause — node destroyed during the walk (reproduced):**
+
+- Talon's `.py4` modules are compiled; `dis` and `inspect` cannot read
+  `MacExecutor.prune_visible`, so the cause was found by wrapping it.
+- Five wrapped one-minute idle queries in window 8919 did not fail, so idle
+  time alone does not reproduce it.
+- In mokuro (7048), `Toggle Panel` was pressed while workbench queries ran:
+  - 2 of 6 queries raised `AttributeError: AXRole`: the one running across the
+    toggle and the one started just after it.
+  - The 4 later queries and 3 quiet queries returned 253 controls.
+- In both captures, the node passed to `prune_visible` was a `RichElement`
+  with `attrs == []`. `get("AXRole")` returned `None` and `.AXRole` raised
+  `AttributeError: AXRole`: a node removed from the DOM after it was
+  enumerated. Talon's pruning reads `.AXRole` without handling that case.
+- The idle and first-show failures in 8919 fit the same mechanism, because
+  that window's chat DOM changes while it streams. Which mutation caused each
+  of those failures was not captured.
+- The probe left mokuro's panel hidden (the toggle re-rendered, and later
+  presses raised `ActionFailed`); it was restored and checked (`AXValue` 0 → 1).
+
+Evidence: `files/n10/mutation_probe.py` / `.json` in the session folder.
+Remedy options are not chosen yet: retry the query once, query with
+`visible_only=False` and filter frames ourselves, or report it to Talon.
 
 **Checklist:**
 
@@ -1012,7 +1035,8 @@ separately below.
 - [x] Equivalence with previous collector shown in three states.
 - [x] Live staged rendering and timing measured, tab restored.
 - [ ] Split editor groups.
-- [ ] Root cause of `AttributeError: AXRole`.
+- [x] Root cause of `AttributeError: AXRole`: DOM mutation during the walk.
+- [ ] Choose and verify a remedy.
 
 ### N13. Depth caps, measured against the ground truth
 
