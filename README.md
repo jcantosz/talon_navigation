@@ -293,6 +293,15 @@ needed for runtime behavior.
 
 From the repository root:
 
+Development commands using `uv` select Python 3.12 via `.python-version`,
+independently of macOS's system Python and Talon's bundled interpreter:
+
+```sh
+uv run python -m unittest tests.test_accessibility_runtime tests.test_accessibility_inventory
+```
+
+Or, with an existing Python 3.10+ virtual environment:
+
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 ```
