@@ -8,6 +8,8 @@ from .text_highlight_spike_core import (
     displayed_match_indices,
     find_matches,
     nearest_match_index,
+    python_index_to_utf16,
+    utf16_index_to_python,
 )
 
 mod = Module()
@@ -35,8 +37,9 @@ if _previous_session is not None:
 
 
 class HighlightSession:
-    def __init__(self, owner, element, content, offset, matches, current):
+    def __init__(self, owner, window_id, element, content, offset, matches, current):
         self.owner = owner
+        self.window_id = window_id
         self.element = element
         self.content = content
         self.offset = offset
@@ -55,10 +58,14 @@ class HighlightSession:
             raise RuntimeError("The word highlight session is no longer active.")
         if ui.active_app().pid != self.owner.pid:
             raise RuntimeError("The active application changed.")
+        if ui.active_window().id != self.window_id:
+            raise RuntimeError("The active window changed.")
         if self.focus_reliable and self.element.get("AXFocused") is False:
             raise RuntimeError("The focused editable element changed.")
         if self.element.get("AXValue") != self.content:
             raise RuntimeError("The editable text changed.")
+        if _shared_offset(self.element) != self.offset:
+            raise RuntimeError("The editable text range changed.")
 
     def select(self, index):
         self.validate()
@@ -66,8 +73,8 @@ class HighlightSession:
             raise IndexError("That match number is out of range.")
 
         match = self.matches[index]
-        start = match.start + self.offset
-        end = match.end + self.offset
+        start = self.offset + python_index_to_utf16(self.content, match.start)
+        end = self.offset + python_index_to_utf16(self.content, match.end)
         selected_range = None
         for _attempt in range(2):
             was_focused = self.element.get("AXFocused") is True
@@ -130,20 +137,22 @@ def _editable_element():
     raise RuntimeError("The focused accessibility element is not editable.")
 
 
+def _shared_offset(element):
+    shared_range = element.get("AXSharedCharacterRange")
+    if shared_range is None or shared_range.left is None:
+        return 0
+    return shared_range.left
+
+
 def _buffer(element):
     content = element.get("AXValue")
     if not isinstance(content, str):
         raise RuntimeError("The focused editable element does not expose text.")
 
     selection = element.get("AXSelectedTextRange") or Span(0, 0)
-    shared_range = element.get("AXSharedCharacterRange")
-    offset = (
-        shared_range.left
-        if shared_range is not None and shared_range.left is not None
-        else 0
-    )
+    offset = _shared_offset(element)
     selection_right = selection.right if selection.right is not None else offset
-    caret = max(0, min(len(content), selection_right - offset))
+    caret = utf16_index_to_python(content, selection_right - offset)
     return content, offset, caret
 
 
@@ -151,7 +160,20 @@ def _matching_terms(word):
     terms = [word]
     try:
         homophones = actions.user.homophones_get(word)
+    except KeyError:
+        # Talon raises KeyError when the Community homophones action is absent.
+        logging.exception("Text highlight spike: homophones action unavailable")
+        app.notify(
+            "Highlight word",
+            "Homophones are unavailable; matching the exact word only.",
+        )
+        homophones = None
     except ui.ActionFailed:
+        logging.exception("Text highlight spike: homophone lookup failed")
+        app.notify(
+            "Highlight word",
+            "Homophone lookup failed; matching the exact word only.",
+        )
         homophones = None
     if homophones:
         terms.extend(homophones)
@@ -179,6 +201,7 @@ def _start(word):
         current = nearest_match_index(matches, caret)
         _session = HighlightSession(
             owner,
+            ui.active_window().id,
             element,
             content,
             offset,
@@ -221,7 +244,7 @@ def _element_changed(*_event):
         ) or _session.element.get("AXValue") != _session.content:
             _stop()
     except ui.UIErr:
-        _stop()
+        _notify_error("The highlighted editable element is no longer available.")
 
 
 @imgui.open()

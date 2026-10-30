@@ -11,6 +11,27 @@ class TextMatch:
     text: str
 
 
+def python_index_to_utf16(content, index):
+    if not 0 <= index <= len(content):
+        raise ValueError("The Python string index is out of range.")
+    return sum(2 if ord(character) > 0xFFFF else 1 for character in content[:index])
+
+
+def utf16_index_to_python(content, index):
+    if index <= 0:
+        return 0
+
+    units = 0
+    for position, character in enumerate(content):
+        next_units = units + (2 if ord(character) > 0xFFFF else 1)
+        if next_units > index:
+            return position
+        if next_units == index:
+            return position + 1
+        units = next_units
+    return len(content)
+
+
 def find_matches(content, terms):
     normalized_terms = tuple(
         dict.fromkeys(

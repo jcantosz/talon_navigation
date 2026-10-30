@@ -30,6 +30,19 @@ class TextHighlightSpikeTests(unittest.TestCase):
         self.assertEqual(core.nearest_match_index(matches, 9), 1)
         self.assertEqual(core.nearest_match_index(matches, 20), 2)
 
+    def test_python_and_utf16_indices_round_trip_non_bmp_characters(self):
+        content = "🙂 target"
+
+        self.assertEqual(core.python_index_to_utf16(content, 2), 3)
+        self.assertEqual(core.python_index_to_utf16(content, 8), 9)
+        self.assertEqual(core.utf16_index_to_python(content, 3), 2)
+        self.assertEqual(core.utf16_index_to_python(content, 9), 8)
+        self.assertEqual(core.utf16_index_to_python(content, 1), 0)
+
+    def test_python_to_utf16_rejects_out_of_range_indices(self):
+        with self.assertRaises(ValueError):
+            core.python_index_to_utf16("word", 5)
+
     def test_context_snippet_marks_match_and_limits_surrounding_words(self):
         content = "zero one two three target four five six seven"
         match = core.find_matches(content, ("target",))[0]
