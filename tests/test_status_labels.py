@@ -284,6 +284,25 @@ class StatusLabelsTests(unittest.TestCase):
             AXSubrole="AXSystemDialog",
         )
 
+    def add_window_group_icon(self):
+        icon = Element(
+            "AXMenuBarItem",
+            frame=Rect(750, 0, 25, 24),
+            actions=("AXPress",),
+            AXSubrole="AXMenuExtra",
+            AXDescription="Clock",
+            AXIdentifier="com.apple.menuextra.clock",
+        )
+        group = Element("AXGroup", children=[icon])
+        window = Element(
+            "AXWindow",
+            frame=Rect(750, 0, 25, 24),
+            children=[group],
+            AXParent=self.owner.element,
+        )
+        self.owner.element.attrs["AXChildren"].append(window)
+        return icon, group
+
     def open_panel(self, names=False, controls=None):
         panel = self.panel(*(controls or [self.button()]))
 
@@ -379,6 +398,106 @@ class StatusLabelsTests(unittest.TestCase):
         self.tick(session, 3)
         self.assertIs(session.surface.owner, notification_center)
         self.assertIs(session.surface.root, panel)
+
+    def test_group_backed_clock_opens_notification_center_and_reuses_cached_parents(
+        self,
+    ):
+        clock, _ = self.add_window_group_icon()
+        notification_center = Owner(
+            3, "Notification Center", "com.apple.notificationcenterui"
+        )
+        self.apps.append(notification_center)
+        panel = self.panel(self.button("Notifications"))
+
+        def toggle(action):
+            roots = notification_center.element.attrs["AXChildren"]
+            if panel in roots:
+                roots.remove(panel)
+            else:
+                roots.append(panel)
+
+        clock.perform.side_effect = toggle
+        self.commands.status_labels_show(False)
+        self.assertEqual(self.visible, [self.icon, clock])
+        self.labels.select(2)
+        session = self.module._session
+        self.tick(session, 3)
+        self.assertIs(session.surface.owner, notification_center)
+        self.assertIs(session.surface.root, panel)
+        with patch.object(self.module, "discover", wraps=self.module.discover) as scan:
+            self.commands.status_labels_back()
+            self.tick(session, 3)
+
+        self.assertEqual(self.visible, [self.icon, clock])
+        self.assertIsNotNone(scan.call_args.kwargs["parents"])
+
+    def test_group_backed_icons_are_selectable_by_name_and_number(self):
+        clock, _ = self.add_window_group_icon()
+        for names in (True, False):
+            with self.subTest(names=names):
+                clock.perform.reset_mock()
+                self.commands.status_labels_show(names)
+                self.assertEqual(self.visible, [self.icon, clock])
+                self.assertEqual(self.names, names)
+                self.labels.select("Clock" if names else 2)
+                clock.perform.assert_called_once_with("AXPress")
+                self.labels.hide()
+
+    def test_adopts_an_already_open_group_backed_clock_panel(self):
+        clock, _ = self.add_window_group_icon()
+        notification_center = Owner(
+            3, "Notification Center", "com.apple.notificationcenterui"
+        )
+        panel = self.panel(self.button("Notifications"))
+        notification_center.element.attrs["AXChildren"] = [panel]
+        self.apps.append(notification_center)
+
+        self.commands.status_labels_show(False)
+
+        session = self.module._session
+        self.assertIs(session.surface.root, panel)
+        self.assertIs(session.surface.owner, notification_center)
+        self.assertIs(session.opener, clock)
+        self.assertEqual({provider.pid for provider in session.providers}, {2, 3})
+
+    def test_unhit_group_sibling_is_not_used_to_adopt_an_open_menu(self):
+        clock, group = self.add_window_group_icon()
+        unrelated = Element("AXMenuExtra", "Unrelated", Rect(550, 100, 20, 20))
+        unrelated.attrs["AXParent"] = group
+        group.attrs["AXChildren"].append(unrelated)
+        entry = Element("AXMenuItem", "About", Rect(550, 130, 80, 30))
+        self.menu = Element("AXMenu", children=[entry], AXParent=unrelated)
+
+        self.commands.status_labels_show(False)
+
+        self.assertIsNone(self.module._session.surface)
+        self.assertEqual(self.visible, [self.icon, clock])
+
+    def test_a_missing_group_provider_reports_an_error(self):
+        other = Owner(3, "Other provider", "other")
+        icon = Element(
+            "AXMenuExtra", "Other", Rect(800, 0, 25, 24), actions=("AXPress",)
+        )
+        group = Element("AXGroup", children=[icon])
+        other.element.attrs["AXChildren"] = [
+            Element(
+                "AXWindow",
+                frame=Rect(800, 0, 25, 24),
+                children=[group],
+                AXParent=other.element,
+            )
+        ]
+        self.apps.append(other)
+        self.ui.apps = lambda: [self.owner]
+
+        with self.assertLogs(level="ERROR"):
+            self.commands.status_labels_show(False)
+
+        self.assertIsNone(self.module._session)
+        self.assertEqual(self.visible, [])
+        self.notify.assert_called_once_with(
+            "Status labels", "Unable to access the status icons."
+        )
 
     def test_newly_started_apps_are_discovered_on_the_next_scan(self):
         self.module._icons()

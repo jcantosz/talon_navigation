@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class Item:
+    """A status item and its menu bar or direct parent container."""
+
     element: talon_ui.Element
     bar: talon_ui.Element
     application: talon_ui.Element
@@ -22,12 +24,17 @@ class Item:
 
 @dataclass
 class Parent:
+    """A discovered container; non-menu bars retain only hit-tested candidates."""
+
     element: talon_ui.Element
     application: talon_ui.Element
+    candidates: list[talon_ui.Element] | None = None
 
 
 @dataclass
 class Result:
+    """Discovery results; bars also includes direct fallback containers."""
+
     items: list[Item]
     bars: list[Parent]
     rows: list[float]
@@ -46,11 +53,32 @@ def _ancestor(element, role):
     return None
 
 
-def _scan_bars(ui, step):
+def _scan_parents(ui, step):
     probes = 0
     empty_hits = 0
-    bars = []
+    parents = []
     rows = []
+
+    def add_parent(element, candidate=None):
+        parent = next((parent for parent in parents if parent.element == element), None)
+        if parent is None:
+            application = _ancestor(element, "AXApplication")
+            if application is None:
+                raise RuntimeError(
+                    "A status-item parent has no accessible application owner."
+                )
+            parent = Parent(element, application, None if candidate is None else [])
+            parents.append(parent)
+        if (
+            candidate is not None
+            and parent.candidates is not None
+            and candidate not in parent.candidates
+        ):
+            if not any(child == candidate for child in element.get("AXChildren") or ()):
+                raise RuntimeError(
+                    "A status item is missing from its accessible parent."
+                )
+            parent.candidates.append(candidate)
 
     def hit(x, y):
         nonlocal probes, empty_hits
@@ -95,18 +123,35 @@ def _scan_bars(ui, step):
                         role == "AXMenuExtra"
                         or element.get("AXSubrole") == "AXMenuExtra"
                     ):
-                        bar = _ancestor(element.get("AXParent"), "AXMenuBar")
-                        if bar is None:
-                            raise RuntimeError(
-                                "A status item has no accessible menu-bar parent."
-                            )
-                        if bar not in bars:
-                            bars.append(bar)
+                        direct_parent = element.get("AXParent")
+                        bar = _ancestor(direct_parent, "AXMenuBar")
+                        if bar is not None:
+                            add_parent(bar)
+                        if bar is None or direct_parent != bar:
+                            if direct_parent is None:
+                                raise RuntimeError(
+                                    "A status item has no accessible parent."
+                                )
+                            add_parent(direct_parent, element)
                     break
                 element = element.get("AXParent")
             x -= step
 
-    return bars, rows, probes, empty_hits
+    return parents, rows, probes, empty_hits
+
+
+def status_children(parent):
+    for element in parent.element.get("AXChildren") or ():
+        if parent.candidates is not None and (
+            element not in parent.candidates
+            or element.get("AXParent") != parent.element
+        ):
+            continue
+        if (
+            element.get("AXRole") == "AXMenuExtra"
+            or element.get("AXSubrole") == "AXMenuExtra"
+        ):
+            yield element
 
 
 def discover(ui, visible_frame, is_unobstructed, *, step=8, parents=None):
@@ -116,25 +161,12 @@ def discover(ui, visible_frame, is_unobstructed, *, step=8, parents=None):
     rows = []
     probes = empty_hits = 0
     if parents is None:
-        bars, rows, probes, empty_hits = _scan_bars(ui, step)
-        parents = []
-        for bar in bars:
-            application = _ancestor(bar.get("AXParent"), "AXApplication")
-            if application is None:
-                raise RuntimeError(
-                    "A menu-bar parent has no accessible application owner."
-                )
-            parents.append(Parent(bar, application))
+        parents, rows, probes, empty_hits = _scan_parents(ui, step)
     else:
         parents = list(parents)
     items = []
     for parent in parents:
-        for element in parent.element.get("AXChildren") or ():
-            if (
-                element.get("AXRole") != "AXMenuExtra"
-                and element.get("AXSubrole") != "AXMenuExtra"
-            ):
-                continue
+        for element in status_children(parent):
             frame = visible_frame(element)
             if (
                 frame is not None

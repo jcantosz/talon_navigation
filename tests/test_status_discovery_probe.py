@@ -58,6 +58,14 @@ class DiscoveryProbeTests(unittest.TestCase):
         self.bars.append(bar)
         return bar
 
+    def add_group(self, parent=None):
+        if parent is None:
+            owner = Element("AXApplication")
+            parent = Element("AXWindow", parent=owner)
+        group = Element("AXGroup", parent=parent, AXChildren=[])
+        self.bars.append(group)
+        return group
+
     def add_icon(self, bar, frame, **attrs):
         icon = Element("AXMenuBarItem", frame, bar, AXSubrole="AXMenuExtra", **attrs)
         bar.get("AXChildren").append(icon)
@@ -151,6 +159,167 @@ class DiscoveryProbeTests(unittest.TestCase):
         self.assertTrue(
             all(item.application == item.bar.get("AXParent") for item in result.items)
         )
+
+    def test_discovers_window_group_icons_alongside_menu_bar_icons(self):
+        bar = self.add_bar()
+        group = self.add_group()
+        normal = self.add_icon(bar, Rect(40, 4, 10, 16))
+        subrole = self.add_icon(group, Rect(60, 4, 10, 16))
+        role = self.add_icon(group, Rect(80, 4, 10, 16))
+        role.attrs.update(AXRole="AXMenuExtra", AXSubrole=None)
+
+        result = self.scan(8)
+
+        self.assertEqual(
+            [item.element for item in result.items], [normal, subrole, role]
+        )
+        self.assertEqual(len(result.bars), 2)
+        owner = group.get("AXParent").get("AXParent")
+        for item in result.items[1:]:
+            self.assertIs(item.bar, group)
+            self.assertIs(item.application, owner)
+
+    def test_discovers_an_icon_directly_parented_by_a_window(self):
+        owner = Element("AXApplication")
+        window = Element("AXWindow", parent=owner, AXChildren=[])
+        self.bars.append(window)
+        icon = self.add_icon(window, Rect(80, 4, 10, 16))
+
+        result = self.scan(8)
+
+        self.assertEqual([item.element for item in result.items], [icon])
+        self.assertIs(result.items[0].bar, window)
+        self.assertIs(result.items[0].application, owner)
+
+    def test_group_discovery_only_includes_hit_tested_status_items(self):
+        group = self.add_group()
+        hit = self.add_icon(group, Rect(80, 4, 10, 16))
+        narrow = self.add_icon(group, Rect(37.2, 4, 1, 16))
+        offset = self.add_icon(group, Rect(30, 40, 10, 16))
+        group.get("AXChildren").append(Element("AXButton", Rect(60, 4, 10, 16), group))
+        self.assertTrue(self.is_unobstructed(narrow, narrow.get("AXFrame")))
+        self.assertTrue(self.is_unobstructed(offset, offset.get("AXFrame")))
+
+        self.assertEqual([item.element for item in self.scan(8).items], [hit])
+
+    def test_menu_bar_discovery_still_includes_unhit_status_siblings(self):
+        bar = self.add_bar()
+        hit = self.add_icon(bar, Rect(80, 4, 10, 16))
+        narrow = self.add_icon(bar, Rect(37.2, 4, 1, 16))
+        self.assertEqual([item.element for item in self.scan(8).items], [narrow, hit])
+
+    def test_group_candidates_still_require_enabled_unobstructed_visible_frames(self):
+        group = self.add_group()
+        visible = self.add_icon(group, Rect(80, 4, 10, 16))
+        self.add_icon(group, Rect(60, 4, 10, 16), AXEnabled=False)
+        self.add_icon(group, Rect(40, 4, 20, 16))
+        self.add_icon(group, Rect(20, 4, 10, 16), AXHidden=True)
+        self.add_icon(group, Rect(110, 4, 10, 16))
+        self.covered.append(Rect(49.5, 0, 1, 24))
+
+        self.assertEqual([item.element for item in self.scan(8).items], [visible])
+
+    def test_nested_group_icon_is_not_lost_when_a_menu_bar_is_an_ancestor(self):
+        bar = self.add_bar()
+        normal = self.add_icon(bar, Rect(40, 4, 10, 16))
+        group = self.add_group(bar)
+        bar.get("AXChildren").append(group)
+        nested = self.add_icon(group, Rect(80, 4, 10, 16))
+
+        result = self.scan(8)
+
+        self.assertEqual([item.element for item in result.items], [normal, nested])
+        self.assertIs(result.items[1].bar, group)
+        self.assertIs(result.items[1].application, bar.get("AXParent"))
+
+    def test_cached_group_rechecks_children_without_scanning_or_adopting_new_siblings(
+        self,
+    ):
+        group = self.add_group()
+        removed = self.add_icon(group, Rect(60, 4, 10, 16))
+        retained = self.add_icon(group, Rect(80, 4, 10, 16))
+        result = self.scan(8)
+        self.assertEqual([item.element for item in result.items], [removed, retained])
+        group.get("AXChildren").remove(removed)
+        self.add_icon(group, Rect(40, 4, 10, 16))
+        self.ui.element_at = lambda x, y: self.fail("Cached parents must not rescan")
+
+        cached = self.probe.discover(
+            self.ui,
+            self.visible_frame,
+            self.is_unobstructed,
+            parents=result.bars,
+        )
+
+        self.assertEqual([item.element for item in cached.items], [retained])
+        self.assertEqual(cached.probes, 0)
+
+    def test_fresh_scan_discovers_new_group_siblings(self):
+        group = self.add_group()
+        original = self.add_icon(group, Rect(80, 4, 10, 16))
+        self.assertEqual([item.element for item in self.scan(8).items], [original])
+        added = self.add_icon(group, Rect(40, 4, 10, 16))
+
+        self.assertEqual(
+            [item.element for item in self.scan(8).items], [added, original]
+        )
+
+    def test_cached_group_ignores_a_reparented_icon_still_listed_as_a_child(self):
+        group = self.add_group()
+        icon = self.add_icon(group, Rect(80, 4, 10, 16))
+        result = self.scan(8)
+        icon.attrs["AXParent"] = Element("AXGroup")
+
+        cached = self.probe.discover(
+            self.ui,
+            self.visible_frame,
+            self.is_unobstructed,
+            parents=result.bars,
+        )
+
+        self.assertEqual(cached.items, [])
+
+    def test_group_without_an_accessible_application_owner_fails_explicitly(self):
+        group = self.add_group()
+        group.get("AXParent").attrs["AXParent"] = None
+        self.add_icon(group, Rect(80, 4, 10, 16))
+
+        with self.assertRaisesRegex(RuntimeError, "application owner"):
+            self.scan(8)
+
+    def test_hit_item_without_an_accessible_parent_fails_explicitly(self):
+        icon = Element("AXMenuBarItem", Rect(80, 4, 10, 16), AXSubrole="AXMenuExtra")
+        hit = self.ui.element_at
+        self.ui.element_at = lambda x, y: (
+            icon if icon.get("AXFrame").contains(x, y) else hit(x, y)
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "no accessible parent"):
+            self.scan(8)
+
+    def test_hit_item_missing_from_its_parent_fails_explicitly(self):
+        group = self.add_group()
+        icon = self.add_icon(group, Rect(80, 4, 10, 16))
+        group.get("AXChildren").remove(icon)
+        hit = self.ui.element_at
+        self.ui.element_at = lambda x, y: (
+            icon if icon.get("AXFrame").contains(x, y) else hit(x, y)
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "missing from its accessible parent"):
+            self.scan(8)
+
+    def test_group_parent_is_deduplicated_across_displays(self):
+        self.screens.append(SimpleNamespace(rect=Rect(200, 100, 100, 100)))
+        self.main_bars.append(Element("AXMenuBar", Rect(200, 100, 100, 48), self.front))
+        group = self.add_group()
+        first = self.add_icon(group, Rect(70, 8, 10, 8))
+        second = self.add_icon(group, Rect(270, 120, 10, 8))
+
+        result = self.scan(8)
+
+        self.assertEqual([item.element for item in result.items], [first, second])
+        self.assertEqual(len(result.bars), 1)
 
     def test_single_point_icon_is_found_but_sparse_scan_can_miss_its_parent(self):
         self.add_icon(self.add_bar(), Rect(37.2, 4, 1, 16))

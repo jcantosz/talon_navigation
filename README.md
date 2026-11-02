@@ -175,15 +175,18 @@ navigation commands; `menu back` is less ambiguous.
   or freshly scan the visible menu bar when no panel is open.
 
 From the first request, discovery hit-tests the menu bar at 8-point intervals,
-finds status items' parent menu bars, and reads those parents' contents. Every
-normal icon-show request performs a fresh scan, so new providers can be found
-without a cache-expiry delay. App metadata is used only to associate discovered
-parents with their owners; unrelated apps' accessibility trees are not queried.
-Back navigation rereads the already-discovered parents.
+finds status items' parent menu bars, and reads those parents' contents. Some
+macOS status items instead live under a group or window; for those, discovery
+uses only the status items actually hit-tested in the menu-bar row. Every normal
+icon-show request performs a fresh scan, so new providers can be found without a
+cache-expiry delay. App metadata is used only to associate discovered parents
+with their owners; unrelated apps' accessibility trees are not queried. Back
+navigation rereads the already-discovered parents and verifies that non-menu-bar
+icons are still their direct children.
 
-There is no all-application discovery scan or legacy fallback. Accessibility
-failures produce a notification. Unusually narrow or vertically offset custom
-accessibility bounds can be missed by the scan.
+There is no all-application discovery scan. Accessibility failures produce a
+notification. Unusually narrow or vertically offset custom accessibility bounds
+can be missed by the scan, including unhit siblings of a discovered group.
 
 Titles come from macOS accessibility information. Some third-party icons have
 generic names such as `MenuBarItem`. Discovery verifies each icon's center against
@@ -355,19 +358,21 @@ and repeated adjustments without hiding or unnecessarily redrawing labels.
 
 [discovery.py](status/discovery.py) is the discovery path used by voice commands.
 Its `discover` function
-hit-tests menu-bar rows, walks to the status items' parent bars, then reads their
-contents. It accepts the running Talon `ui` object plus the status module's
-visibility and hit-test helpers, and reports elements, owning application
-elements, parents, probe rows, probe query/empty-hit counts, and elapsed time.
+hit-tests menu-bar rows, walks to the status items' parent bars or direct
+parents, then reads their contents. It accepts the running Talon `ui` object plus
+the status module's visibility and hit-test helpers, and reports elements,
+owning application elements, parents, probe rows, probe query/empty-hit counts,
+and elapsed time.
 
 [test_status_discovery_probe.py](tests/test_status_discovery_probe.py) compares
 this approach with an all-provider reference using simulated accessibility
 trees. It covers narrow icons, covered/hidden/disabled items, empty hits,
-descendant hits, hidden bars, and monitors with different offsets and bar
-heights. Tests also document the accepted limits: a sparse stride can miss a
-narrow icon whose parent has not otherwise been found, and a single probe row can
-miss vertically offset custom accessibility bounds. The normal path uses
-8-point spacing for real-world status icons and does not fall back to app scans.
+descendant hits, group-backed items, cached parents, hidden bars, and monitors
+with different offsets and bar heights. Tests also document the accepted limits:
+a sparse stride can miss a narrow icon whose parent has not otherwise been found
+or whose direct parent is not a menu bar, and a single probe row can miss
+vertically offset custom accessibility bounds. The normal path uses 8-point
+spacing for real-world status icons and does not fall back to app scans.
 The Talon linter integration tests also exercise malformed files and read-only
 checks; these are explicitly skipped if Node or the npm development dependencies
 are absent.

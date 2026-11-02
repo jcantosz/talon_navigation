@@ -5,7 +5,7 @@ from math import isfinite
 from talon import Context, Module, actions, app, ui
 
 from ..lib.labels import LabelSession, menu_opener, menu_parent
-from .discovery import discover
+from .discovery import discover, status_children
 
 mod = Module()
 mod.tag("status_labels_active", desc="Navigating macOS status icons and their panels")
@@ -245,12 +245,7 @@ def _open_status():
     items = []
     for parent, owner in _parents:
         try:
-            items.extend(
-                (element, owner)
-                for element in _children(parent.element)
-                if element.get("AXSubrole") == "AXMenuExtra"
-                or element.get("AXRole") == "AXMenuExtra"
-            )
+            items.extend((element, owner) for element in status_children(parent))
         except ui.UIErr:
             logging.warning(
                 "Status labels: unable to inspect %s", owner.name, exc_info=True
