@@ -78,6 +78,7 @@ EXPANDING_ROLES = {
     "AXPopUpButton",
 }
 QUERY = "[AXPosition]:action(AXPress)"
+ROW_ITEM_LEVELS = 3
 MAX_NATIVE_NODES = 10000
 ACCESSIBILITY_ATTRIBUTES = (
     "AXEnhancedUserInterface",
@@ -117,9 +118,25 @@ def _query_budget():
     return configured_depth or -1, timeout
 
 
+def _is_row_item(element):
+    """Return whether element is a row, or the pressable content of a row that is not."""
+    role = element.get("AXRole")
+    if role == "AXRow":
+        return True
+    if role != "AXGroup":
+        return False
+    for _ in range(ROW_ITEM_LEVELS):
+        element = element.get("AXParent")
+        if element is None:
+            return False
+        if element.get("AXRole") == "AXRow":
+            return "AXPress" not in element.actions
+    return False
+
+
 def _add_control(element, controls):
     if (
-        element.get("AXRole") in CONTROL_ROLES
+        (element.get("AXRole") in CONTROL_ROLES or _is_row_item(element))
         and element.get("AXEnabled") is not False
         and element.get("AXHidden") is not True
         and _has_usable_frame(element)
@@ -131,13 +148,23 @@ def _add_control(element, controls):
 def _query_controls(root, controls, budget, clip=None):
     """Add root's controls; with a clip frame, filter overlap instead of pruning."""
     max_depth, timeout = budget
-    for element in axquery.query_all(
-        QUERY,
-        root=root,
-        visible_only=clip is None,
-        max_depth=max_depth,
-        timeout=timeout,
-    ):
+
+    def query():
+        return axquery.query_all(
+            QUERY,
+            root=root,
+            visible_only=clip is None,
+            max_depth=max_depth,
+            timeout=timeout,
+        )
+
+    try:
+        elements = query()
+    except AttributeError:
+        # Talon's matcher raises AttributeError when an element vanishes mid-query.
+        logging.debug("Application labels: retrying AX query", exc_info=True)
+        elements = query()
+    for element in elements:
         if clip is None or _overlaps(element.get("AXFrame"), clip):
             _add_control(element, controls)
 

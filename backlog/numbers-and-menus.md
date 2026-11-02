@@ -1334,7 +1334,70 @@ Evidence: session `files/n10/xapp_<state>.json` and `.png`
   Slack `.talon` file, pending a scrolled-state check and numbered activation.
 - [x] Compare results and choose: per-app policy; global default unchanged.
 - [x] Enable clip for Slack (`accessibility/inventory_slack.talon`).
+- [x] Number list rows (row rule) and retry one transient `AXRole` error.
 - [ ] Follow-up spike: clip to the nearest scroll area instead of the window.
+  Alternatively, clip only within `AXWebArea` subtrees.
+- [ ] Row label placement: wide Slack rows get Talon badges outside their
+  pane (on the rail or past the sidebar edge).
+- [ ] Untested: Slack scrolled state, Finder list view, Mail, numbered
+  activation of row items, and the retry under live mutation.
+
+#### N12d follow-up: Slack clip, row rule and query retry, 2026-11-02
+
+**Changes** (`accessibility/inventory.py`, `inventory_slack.talon`):
+
+- Slack enables `user.accessibility_clip_to_surface`. The global default
+  stays off. Clip is an include list (VS Code, Slack), for two reasons:
+  - Native AppKit scroll views (Finder, Notes, Settings) make clip wrong and
+    slow.
+  - Web/Electron content makes Talon's pruning wrong.
+- Row rule: number an `AXRow`. Also number an `AXGroup` whose nearest
+  `AXRow` within `ROW_ITEM_LEVELS` (3) ancestors is not pressable. The group
+  case covers VS Code Explorer items, whose pressable `AXGroup` sits inside a
+  non-pressable row.
+- The query retries once on `AttributeError` (Talon's transient
+  `AXRole` error while the tree mutates). It notifies on a second failure,
+  as before.
+- Tests (written first; 4 of 5 failed before the change):
+  - pressable rows are numbered
+  - a group inside an unpressable row is numbered
+  - a group inside a pressable row is not numbered twice
+  - groups outside nearby rows are not numbered
+  - the transient error is retried once
+
+**Before/after profile** (production settings for each app, median of 3
+runs; Talon = default `show numbers`):
+
+| App / state | Talon | Before | After | Clip off / on (after) |
+|---|---:|---:|---:|---|
+| VS Code (this workspace) | 1007 / 2.7 s | 131 / 0.40 s | 168–179 / 0.47 s | 1.3 s / 0.47 s |
+| Slack (DM + canvas) | 94 / 0.23 s | 54 / 0.23 s | 91 / 0.18 s | 61 / 0.26 s, 91 / 0.17 s |
+| Finder (Desktop icon view) | 18 | 13 / 0.07 s | 13 / 0.08 s | clip 0.56 s, same set |
+| System Settings (Full Disk Access) | 48 | 41 / 0.14 s | 41 / 0.15 s | clip 0.50 s |
+| Word | 79 | 79 / 0.06 s | 79 / 0.06 s | identical |
+| Excel | 77 | 73 / 0.06 s | 73 / 0.06 s | identical |
+| Firefox (web mail inbox) | 630 / 0.58 s | 122 / 0.60 s | 122 / 0.75 s | clip 0.58 s, identical |
+| Safari | 105 | 76 / 0.35 s | 76 / 0.34 s | clip 0.16 s, identical |
+| Notes (366 notes) | 25 | 18 / 0.38 s | 18 / 0.39 s | **clip 6.1 s, truncated** |
+| Terminal | 12 | 9 / 0.01 s | 9 / 0.01 s | identical |
+
+Notes on the profile:
+
+- For every app except VS Code, the after set matches the before
+  prototype set ("rows on" with that app's clip setting) exactly.
+- VS Code's 11 extra items are content changes between runs, not
+  regressions: new chat-transcript buttons and the Source Control badge.
+- In Settings, only frames moved.
+- Row additions:
+  - VS Code: +37 Explorer items, all on visible rows.
+  - Slack: +20 (sidebar rows, including channels, Threads, Huddles and DMs).
+  - Firefox: none, at a cost of about +0.15 s.
+- In Settings, clip again numbered a scrolled-out "Apple Account" button,
+  which confirms the include-list decision.
+
+Evidence: session `files/clipprobe/` (`probe.py`, `summary.py`,
+`before_<app>.json`, `after_<app>.json`, `*_after_prod_all.png`,
+clip-difference screenshots).
 
 ### N12e. Preserve the Settings view while showing numbers
 

@@ -304,6 +304,59 @@ class ApplicationLabelTests(unittest.TestCase):
 
         self.assertEqual(self.module._session.targets, [self.button])
 
+    def test_pressable_rows_are_numbered(self):
+        row = Element(AXRole="AXRow", AXTitle="Threads", AXFrame=frame(y=200))
+        disabled = Element(AXRole="AXRow", AXFrame=frame(y=300), AXEnabled=False)
+        self.talon.query_results = [row, disabled, self.button]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [row, self.button])
+
+    def test_group_inside_unpressable_row_is_numbered(self):
+        row = Element(AXRole="AXRow", AXFrame=frame(y=200))
+        row.actions = ["AXShowMenu"]
+        cell = Element(AXRole="AXGroup", AXParent=row)
+        item = Element(AXRole="AXGroup", AXParent=cell, AXFrame=frame(y=200))
+        self.talon.query_results = [item, self.button]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [item, self.button])
+
+    def test_group_inside_pressable_row_is_not_numbered_twice(self):
+        row = Element(AXRole="AXRow", AXFrame=frame(y=200))
+        content = Element(AXRole="AXGroup", AXParent=row, AXFrame=frame(y=200))
+        self.talon.query_results = [row, content]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [row])
+
+    def test_groups_outside_nearby_rows_are_not_numbered(self):
+        row = Element(AXRole="AXRow")
+        row.actions = []
+        distant = row
+        for _ in range(3):
+            distant = Element(AXRole="AXGroup", AXParent=distant)
+        far = Element(AXRole="AXGroup", AXParent=distant, AXFrame=frame(y=200))
+        container = Element(AXRole="AXGroup", AXParent=self.window, AXFrame=frame())
+        orphan = Element(AXRole="AXGroup", AXFrame=frame(y=300))
+        self.talon.query_results = [far, container, orphan, self.button]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [self.button])
+
+    def test_transient_query_attribute_error_is_retried_once(self):
+        query = Mock(side_effect=[AttributeError("AXRole"), [self.button]])
+        with patch.object(self.module.axquery, "query_all", query):
+            self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(self.module._session.targets, [self.button])
+        self.talon.notify.assert_not_called()
+
     def test_query_attribute_error_notifies_and_stops_session(self):
         for during_refresh in (False, True):
             with self.subTest(during_refresh=during_refresh):
