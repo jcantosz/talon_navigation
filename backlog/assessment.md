@@ -24,7 +24,7 @@ bb Summary
 | Rango-style aliases elsewhere | **Pursue narrowly** | XS-S | Mostly already exists; only `upper`/`downer` are missing |
 | Windows `command c` / `command l` | **Custom work withdrawn** | XS learning | Community maps "command" → Ctrl on Windows |
 | Generic AX/UIA walker | **Do not pursue now** | L-XL | Little shared code, high cost, unclear Windows usage |
-| Highlight H1-H2 | **Pursue** | S | Close to a promote/remove decision |
+| Highlight H1-H2 | **Pursue** | S | Retained for refinement; validate potential promotion |
 | Highlight static text (H3) | **Time-box or drop** | M | Rango/Cursorless cover browser and VS Code |
 | Substring bounds (H4) | **Park** | M-L | Cosmetic; the popup works |
 | Fuzzy matching (H5) | **Park** | S (collect data) | Risk of selecting the wrong word |

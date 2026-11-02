@@ -149,7 +149,7 @@ by Git. Full snapshots may contain private text and should not be committed.
 
 ### Editable word highlight spike
 
-The spike is deliberately isolated and can be removed as a group:
+The spike is deliberately isolated and is retained for further refinement:
 
 - [`accessibility/text_highlight_spike.py`](../accessibility/text_highlight_spike.py)
 - [`accessibility/text_highlight_spike_core.py`](../accessibility/text_highlight_spike_core.py)

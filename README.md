@@ -224,6 +224,24 @@ Root icons are opened with a mouse click because some apps advertise an
 accessibility press action that does nothing. Switching to an unrelated app
 ends status navigation. Default Talon command files are not modified.
 
+### Status implementation layout
+
+| Module | Responsibility |
+| --- | --- |
+| [discovery.py](status/discovery.py) | Find and validate status-icon parents using menu-bar hit tests |
+| [surfaces.py](status/surfaces.py) | Status targets, visibility checks, and discovery of open menus or panels |
+| [status_session.py](status/status_session.py) | Label rendering, selection, panel transitions, and Back |
+| [status_labels.py](status/status_labels.py) | Talon actions, session ownership, and cached icon parents |
+
+The session receives its context and discovery callbacks from the entry point;
+the helper modules do not register Talon commands. Status tests are grouped by
+icons, panels, Back, session lifecycle, and controls, with shared Talon doubles
+in [status_support.py](tests/status_support.py). Run them with:
+
+```sh
+uv run python -m unittest discover -s tests -p 'test_status_*.py'
+```
+
 ### Command aliases
 
 Use whole-word alternatives: `(lab | label)` means either word, while

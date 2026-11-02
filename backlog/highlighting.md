@@ -1,7 +1,8 @@
 # Word highlighting backlog
 
-Follow the [project principles and handoff](README.md). These are experiments,
-not commitments to promote the isolated editable-word spike.
+Follow the [project principles and handoff](README.md). The editable-word
+highlighter is retained for further refinement; promotion from its isolated
+spike remains subject to validation.
 
 ## H1. Validate editable highlighting by voice
 
@@ -35,7 +36,7 @@ Run each case in Slack, VS Code, and Word:
 rejection, and large-buffer responsiveness are recorded per app. Errors must
 identify the cause in the Talon log. No app-name branches.
 
-## H2. Test session lifecycle and decide promotion
+## H2. Test session lifecycle and assess promotion
 
 **Depends on:** H1 and the highlighting findings in the [audit](accessibility-audit.md).
 
@@ -45,11 +46,9 @@ navigation, invalid numbers, selection-write failure, and closing while
 preserving the selected word. Include shared-buffer offsets and Unicode
 range semantics in the test plan.
 
-**Done when:** tests and H1 evidence support an explicit promote/retain/remove
-decision. Promotion renames files/actions to remove `spike` and adds normal
-user-facing command documentation. If removed, remove the five isolated files
-listed in the [handoff](README.md); retain shared activation fixes only if
-another production feature uses them.
+**Done when:** tests and H1 evidence validate the lifecycle and inform a
+promotion decision. Promotion renames files/actions to remove `spike` and adds
+normal user-facing command documentation.
 
 ## H3. Probe static-text selection, one application at a time
 

@@ -39,8 +39,8 @@ uv run python -m unittest discover -s tests -p 'test_application_*.py'
 
 The experimental word highlighter and diagnostic commands still have active
 Talon bindings; their names or lack of Python callers do not make them dead code.
-The highlighter's promote/retain/remove decision remains in the
-[highlighting backlog](../backlog/highlighting.md#h2-test-session-lifecycle-and-decide-promotion).
+The highlighter will be retained and refined; validation and potential promotion
+are tracked in the [highlighting backlog](../backlog/highlighting.md).
 
 ## Menu navigation constraints
 

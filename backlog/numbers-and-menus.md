@@ -195,7 +195,7 @@ plus ancestry checks took about 72 ms in total.
 
 **Next:** validate a generic branch-level occlusion check before descending
 into embedded content. Reuse the hit-test/ancestor pattern already present in
-[the status-label visibility helper](../status/status_labels.py); do not copy
+[the status-label visibility helper](../status/surfaces.py); do not copy
 it blindly because a sampled
 center can be covered while another part of a view remains visible. Cover
 partially visible views, overlays/dialogs, multiple webviews, scrolling, and
