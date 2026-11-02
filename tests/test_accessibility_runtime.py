@@ -32,11 +32,17 @@ class Element:
         self.attrs = attrs
         self.actions = ["AXPress"]
         self.dead = False
+        self.performed = []
 
     def get(self, key):
         if self.dead:
             raise UIErr("element is gone")
         return self.attrs.get(key)
+
+    def perform(self, action):
+        if self.dead:
+            raise UIErr("element is gone")
+        self.performed.append(action)
 
     def __setitem__(self, key, value):
         if self.dead:
@@ -347,6 +353,91 @@ class ApplicationLabelTests(unittest.TestCase):
         self.actions.accessibility_show_application_numbers()
 
         self.assertEqual(self.module._session.targets, [self.button])
+
+    def text_row(self, text_frame):
+        text = Element(AXRole="AXStaticText", AXValue="games", AXFrame=text_frame)
+        text.actions = ["AXShowMenu"]
+        cell = Element(AXRole="AXGroup", AXChildren=[text], AXFrame=frame(width=380))
+        cell.actions = []
+        row = Element(AXRole="AXRow", AXChildren=[cell], AXFrame=frame(x=0, width=400))
+        return row, text
+
+    def test_row_label_is_drawn_on_its_text(self):
+        row, text = self.text_row(frame(x=40, y=25, width=60, height=18))
+        self.talon.query_results = [row, self.button]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [row, self.button])
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([text, self.button],)))
+
+    def test_row_without_text_inside_it_is_labelled_directly(self):
+        outside, _ = self.text_row(frame(x=600, y=25, width=60, height=18))
+        empty = Element(AXRole="AXRow", AXFrame=frame(y=200, width=400))
+        self.talon.query_results = [outside, empty]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([outside, empty],)))
+
+    def test_pressable_group_in_row_keeps_its_own_label(self):
+        text = Element(AXRole="AXStaticText", AXFrame=frame(x=40, y=25, width=60))
+        row = Element(AXRole="AXRow", AXFrame=frame(x=0, width=400))
+        row.actions = ["AXShowMenu"]
+        item = Element(
+            AXRole="AXGroup", AXParent=row, AXChildren=[text], AXFrame=frame()
+        )
+        self.talon.query_results = [item]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([item],)))
+
+    def test_row_text_four_levels_deep_is_used(self):
+        text = Element(AXRole="AXStaticText", AXFrame=frame(x=40, y=25, width=60))
+        node = text
+        for _ in range(3):
+            node = Element(AXRole="AXGroup", AXChildren=[node], AXFrame=frame())
+            node.actions = []
+        row = Element(AXRole="AXRow", AXChildren=[node], AXFrame=frame(x=0, width=400))
+        self.talon.query_results = [row]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([text],)))
+
+    def test_row_ignores_text_owned_by_a_nested_control(self):
+        text = Element(AXRole="AXStaticText", AXFrame=frame(x=40, y=25, width=60))
+        popup = Element(AXRole="AXPopUpButton", AXChildren=[text], AXFrame=frame())
+        row = Element(AXRole="AXRow", AXChildren=[popup], AXFrame=frame(x=0, width=400))
+        self.talon.query_results = [row, popup]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([row, popup],)))
+
+    def test_selecting_text_labelled_row_presses_the_row(self):
+        row, text = self.text_row(frame(x=40, y=25, width=60, height=18))
+        self.talon.query_results = [row, self.button]
+        self.actions.accessibility_show_application_numbers()
+
+        self.talon.dispatch_labels("select", 1)
+
+        self.assertEqual(row.performed, ["AXPress"])
+        self.assertEqual(text.performed, [])
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+        self.assertIn(("hide", ()), self.talon.native_calls)
+        self.assertIsNone(self.module._session)
+
+    def test_selecting_button_still_uses_native_selection(self):
+        row, _ = self.text_row(frame(x=40, y=25, width=60, height=18))
+        self.talon.query_results = [row, self.button]
+        self.actions.accessibility_show_application_numbers()
+
+        self.talon.dispatch_labels("select", 2)
+
+        self.assertIn(("select", (2,)), self.talon.native_calls)
+        self.assertEqual(row.performed, [])
 
     def test_transient_query_attribute_error_is_retried_once(self):
         query = Mock(side_effect=[AttributeError("AXRole"), [self.button]])

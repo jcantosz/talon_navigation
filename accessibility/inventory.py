@@ -79,6 +79,7 @@ EXPANDING_ROLES = {
 }
 QUERY = "[AXPosition]:action(AXPress)"
 ROW_ITEM_LEVELS = 3
+ROW_TEXT_LEVELS = 4
 MAX_NATIVE_NODES = 10000
 ACCESSIBILITY_ATTRIBUTES = (
     "AXEnhancedUserInterface",
@@ -132,6 +133,45 @@ def _is_row_item(element):
         if element.get("AXRole") == "AXRow":
             return "AXPress" not in element.actions
     return False
+
+
+def _label_element(element):
+    """Return a pressable row's first text inside its frame, else element itself.
+
+    Talon places badges beside a target and only inside it when both sides are
+    occupied, so full-width pressable rows (Slack's sidebar) otherwise get
+    badges outside their pane. Pressable items nested in a row (VS Code's
+    Explorer) already get a readable column of badges and keep their own frame.
+    Text inside a nested control belongs to that control's own label.
+    """
+    if element.get("AXRole") != "AXRow":
+        return element
+    bounds = element.get("AXFrame")
+    level = list(element.get("AXChildren") or ())
+    for _ in range(ROW_TEXT_LEVELS):
+        for child in level:
+            if (
+                child.get("AXRole") == "AXStaticText"
+                and _has_usable_frame(child)
+                and _contains_center(bounds, child.get("AXFrame"))
+            ):
+                return child
+        level = [
+            grandchild
+            for child in level
+            if child.get("AXRole") not in CONTROL_ROLES
+            for grandchild in child.get("AXChildren") or ()
+        ]
+    return element
+
+
+def _contains_center(bounds, frame):
+    x = frame.x + frame.width / 2
+    y = frame.y + frame.height / 2
+    return (
+        bounds.x <= x <= bounds.x + bounds.width
+        and bounds.y <= y <= bounds.y + bounds.height
+    )
 
 
 def _add_control(element, controls):
@@ -374,6 +414,7 @@ class ApplicationLabelSession(LabelSession):
         super().__init__(ctx, "user.application_labels_active", False)
         self.owner = owner
         self.targets = []
+        self.labelled = []
         self.window = None
         self.signature = ()
         self.refresh_job = None
@@ -445,9 +486,10 @@ class ApplicationLabelSession(LabelSession):
             )
             return
         self.targets = targets
+        self.labelled = [_label_element(target) for target in targets]
         self.window = window
         self.signature = signature
-        self.render(targets)
+        self.render(self.labelled)
 
     def _query_failed(self):
         logging.exception("Application labels: unable to query focused controls")
@@ -496,7 +538,12 @@ class ApplicationLabelSession(LabelSession):
                 return
             expand = _may_expand(target)
             self.preserve_hide = expand
-            actions.next(label)
+            if self.labelled[label - 1] is target:
+                actions.next(label)
+            else:
+                # The badge is on the row's text; press the row it stands for.
+                target.perform("AXPress")
+                actions.labels.hide()
             if expand:
                 self.request_refresh("100ms")
         except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):

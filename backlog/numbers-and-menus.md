@@ -1337,8 +1337,8 @@ Evidence: session `files/n10/xapp_<state>.json` and `.png`
 - [x] Number list rows (row rule) and retry one transient `AXRole` error.
 - [ ] Follow-up spike: clip to the nearest scroll area instead of the window.
   Alternatively, clip only within `AXWebArea` subtrees.
-- [ ] Row label placement: wide Slack rows get Talon badges outside their
-  pane (on the rail or past the sidebar edge).
+- [x] Row label placement: draw a pressable row's label on its first text
+  (see "Row label placement" below).
 - [ ] Untested: Slack scrolled state, Finder list view, Mail, numbered
   activation of row items, and the retry under live mutation.
 
@@ -1398,6 +1398,49 @@ Notes on the profile:
 Evidence: session `files/clipprobe/` (`probe.py`, `summary.py`,
 `before_<app>.json`, `after_<app>.json`, `*_after_prod_all.png`,
 clip-difference screenshots).
+
+**Row label placement.** Slack's row frames are accurate (full sidebar
+width, 28 px tall). The misplacement came from Talon's badge layout
+(`talon.gui.labels.layout_badges`):
+
+- It places a badge just left of its target, otherwise just right of it.
+- It places the badge inside the target only when both sides are blocked.
+- So full-width rows got badges on the left rail (x≈43) or past the sidebar
+  edge (x≈471).
+
+Fix (`_label_element`):
+
+- Draw an `AXRow` target's label on the row's first `AXStaticText` whose
+  centre lies inside the row. The search goes up to `ROW_TEXT_LEVELS` (4)
+  levels deep and doesn't descend into nested `CONTROL_ROLES`, which carry
+  their own labels.
+- Selecting a substituted label presses the row with `AXPress`. Every other
+  label still uses Talon's native selection.
+- Nested Explorer groups in VS Code keep their own frame, because text
+  substitution there drew badges over file names.
+- Tests (each written first and failing):
+  - a row's label is drawn on its text
+  - a row without inner text keeps its own label
+  - a text-labelled row is pressed
+  - buttons keep native selection
+  - nested row groups keep their own label
+  - text four levels deep is found
+  - text owned by a nested control is ignored
+
+Live check with the real command (session `files/placement/`, `final.json`
+and `final_<app>.png`):
+
+- Slack row badges inside their row went from 3 to 16 of 20. The 6 non-row
+  badges that moved followed their neighbours; for example, the "Add channels"
+  popup's badge now sits beside its text.
+- The other nine apps have no pressable `AXRow` targets, so their badge
+  layout is identical.
+- Substitution costs 32 ms per refresh in Slack and at most 9 ms elsewhere.
+- Remaining outliers in Slack:
+  - The Starred, Channels and Direct messages section headers expose no title
+    text, so their badges stay just past the sidebar edge.
+  - The "Add channels" row duplicates its nested popup, and its badge lands on
+    the rail.
 
 ### N12e. Preserve the Settings view while showing numbers
 
