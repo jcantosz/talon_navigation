@@ -1,14 +1,34 @@
 import logging
 from math import isfinite
 
-from talon import Context, Module, actions, app, axquery, cron, settings, ui
+from talon import Context, Module, actions, app, axquery, cron, ctrl, settings, ui
 
-from ..lib.labels import LabelSession
+from ..lib.labels import (
+    CONTROL_ROLES,
+    MENU_BACK_FALLBACK_TICKS,
+    MENU_HOVER_DELAY_TICKS,
+    LabelSession,
+    menu_opener,
+    menu_parent,
+)
+from ..lib.labels import (
+    label_element as _label_element,
+)
+from ..lib.labels import (
+    submenu_hover_point as _submenu_hover_point,
+)
+from ..lib.labels import (
+    usable_frame as _has_usable_frame,
+)
 
 mod = Module()
 mod.tag(
     "application_labels_active",
     desc="Navigating focused application controls with accessibility labels",
+)
+mod.tag(
+    "application_labels_session",
+    desc="Preserve application label ownership during menu transitions",
 )
 mod.setting(
     "accessibility_activation_disallowed_bundles",
@@ -48,29 +68,14 @@ mod.setting(
 )
 ctx = Context()
 ctx.matches = "os: mac"
+session_ctx = Context()
+session_ctx.matches = "os: mac"
 labels_ctx = Context()
 labels_ctx.matches = """
 os: mac
-tag: user.application_labels_active
+tag: user.application_labels_session
 """
 
-CONTROL_ROLES = {
-    "AXButton",
-    "AXCheckBox",
-    "AXComboBox",
-    "AXDisclosureTriangle",
-    "AXLink",
-    "AXMenuButton",
-    "AXMenuItem",
-    "AXPopUpButton",
-    "AXRadioButton",
-    "AXSearchField",
-    "AXSlider",
-    "AXSwitch",
-    "AXTab",
-    "AXTextArea",
-    "AXTextField",
-}
 EXPANDING_ROLES = {
     "AXComboBox",
     "AXDisclosureTriangle",
@@ -79,8 +84,11 @@ EXPANDING_ROLES = {
 }
 QUERY = "[AXPosition]:action(AXPress)"
 ROW_ITEM_LEVELS = 3
-ROW_TEXT_LEVELS = 4
+ROW_ACTIVATION_COVERAGE = 0.8
+MENU_POLL_INTERVAL = "100ms"
+MENU_WAIT_TICKS = 15
 MAX_NATIVE_NODES = 10000
+_CURRENT_SURFACE = object()
 ACCESSIBILITY_ATTRIBUTES = (
     "AXEnhancedUserInterface",
     "AXManualAccessibility",
@@ -135,43 +143,37 @@ def _is_row_item(element):
     return False
 
 
-def _label_element(element):
-    """Return a pressable row's first text inside its frame, else element itself.
-
-    Talon places badges beside a target and only inside it when both sides are
-    occupied, so full-width pressable rows (Slack's sidebar) otherwise get
-    badges outside their pane. Pressable items nested in a row (VS Code's
-    Explorer) already get a readable column of badges and keep their own frame.
-    Text inside a nested control belongs to that control's own label.
-    """
-    if element.get("AXRole") != "AXRow":
+def _row_activation_target(element):
+    if element.get("AXRole") != "AXRow" or not _has_usable_frame(element):
         return element
-    bounds = element.get("AXFrame")
-    level = list(element.get("AXChildren") or ())
-    for _ in range(ROW_TEXT_LEVELS):
-        for child in level:
-            if (
-                child.get("AXRole") == "AXStaticText"
-                and _has_usable_frame(child)
-                and _contains_center(bounds, child.get("AXFrame"))
-            ):
-                return child
-        level = [
-            grandchild
-            for child in level
-            if child.get("AXRole") not in CONTROL_ROLES
-            for grandchild in child.get("AXChildren") or ()
-        ]
+    children = [
+        child for child in element.get("AXChildren") or () if "AXPress" in child.actions
+    ]
+    if len(children) != 1:
+        return element
+    child = children[0]
+    if (
+        child.get("AXRole") != "AXGroup"
+        or child.get("AXEnabled") is False
+        or child.get("AXHidden") is True
+        or not _has_usable_frame(child)
+    ):
+        return element
+
+    row = element.get("AXFrame")
+    bounds = child.get("AXFrame")
+    if (
+        bounds.x >= row.x - 1
+        and bounds.y >= row.y - 1
+        and bounds.x + bounds.width <= row.x + row.width + 1
+        and bounds.y + bounds.height <= row.y + row.height + 1
+        and min(bounds.x + bounds.width, row.x + row.width) - max(bounds.x, row.x)
+        >= row.width * ROW_ACTIVATION_COVERAGE
+        and min(bounds.y + bounds.height, row.y + row.height) - max(bounds.y, row.y)
+        >= row.height * ROW_ACTIVATION_COVERAGE
+    ):
+        return child
     return element
-
-
-def _contains_center(bounds, frame):
-    x = frame.x + frame.width / 2
-    y = frame.y + frame.height / 2
-    return (
-        bounds.x <= x <= bounds.x + bounds.width
-        and bounds.y <= y <= bounds.y + bounds.height
-    )
 
 
 def _add_control(element, controls):
@@ -256,24 +258,32 @@ def _split_web_areas(window):
     return native, primary[0], others
 
 
-def _controls(owner):
+def _controls(owner, menu=_CURRENT_SURFACE, window=_CURRENT_SURFACE):
     """Return numbered controls and web areas whose controls may be appended later."""
     budget = _query_budget()
-    defer = settings.get("user.accessibility_defer_web_areas")
     controls = []
-    deferred = []
-    for kind, root in focused_surfaces(owner):
-        clip = _surface_clip(root)
-        split = _split_web_areas(root) if defer and kind == "focused-window" else None
-        if split is None:
-            _query_controls(root, controls, budget, clip)
-            continue
-        native, primary, others = split
-        for element in native:
-            _add_control(element, controls)
-        _query_controls(primary, controls, budget, clip)
-        deferred.extend((area, clip) for area in others)
-    return controls, deferred
+    if menu is _CURRENT_SURFACE:
+        menu = ui.active_menu()
+    if menu is not None:
+        _query_controls(menu, controls, budget, _surface_clip(menu))
+        return controls, []
+    if window is _CURRENT_SURFACE:
+        window = owner.element.get("AXFocusedWindow")
+    if window is None:
+        raise RuntimeError(
+            f"{owner.name} does not expose an AXFocusedWindow attribute."
+        )
+    clip = _surface_clip(window)
+    defer = settings.get("user.accessibility_defer_web_areas")
+    split = _split_web_areas(window) if defer else None
+    if split is None:
+        _query_controls(window, controls, budget, clip)
+        return controls, []
+    native, primary, others = split
+    for element in native:
+        _add_control(element, controls)
+    _query_controls(primary, controls, budget, clip)
+    return controls, [(area, clip) for area in others]
 
 
 def _deferred_controls(areas, controls):
@@ -285,18 +295,6 @@ def _deferred_controls(areas, controls):
         if _has_usable_frame(area) and _in_visible_web_area(area, cache):
             _query_controls(area, combined, budget, clip)
     return combined[len(controls) :]
-
-
-def _has_usable_frame(element):
-    frame = element.get("AXFrame")
-    return (
-        frame is not None
-        and all(
-            isfinite(value) for value in (frame.x, frame.y, frame.width, frame.height)
-        )
-        and frame.width > 0
-        and frame.height > 0
-    )
 
 
 def _web_area(element, cache):
@@ -410,22 +408,33 @@ def _prepare_accessibility_interfaces(owner):
 
 class ApplicationLabelSession(LabelSession):
     def __init__(self, owner):
-        # Publish the tag from the unconditional context; labels_ctx requires it.
+        # Back suspends the visible-label grammar while retaining session ownership.
         super().__init__(ctx, "user.application_labels_active", False)
         self.owner = owner
         self.targets = []
         self.labelled = []
         self.window = None
+        self.menu = None
         self.signature = ()
         self.refresh_job = None
         self.deferred_job = None
         self.refreshing = False
+        self.menu_wait = None
+        self.menu_wait_target = None
+        self.menu_wait_remaining = 0
+        self.menu_hover_target = None
+        self.menu_hover_position = None
+        self.menu_back_fallback = False
+        self.empty_menu = None
+        self.empty_menu_attempts = 0
 
     def start(self):
         self.refresh(force=True)
+        if not self.stopped:
+            self.start_updates(self._check_menu, MENU_POLL_INTERVAL)
 
     def request_refresh(self, delay="0ms"):
-        if self.stopped or self.refresh_job is not None:
+        if self.stopped or self.refresh_job is not None or self.menu_wait is not None:
             return
         self.refresh_job = cron.after(delay, self._refresh_after_event)
 
@@ -433,10 +442,186 @@ class ApplicationLabelSession(LabelSession):
         self.refresh_job = None
         self.refresh()
 
-    def refresh(self, force=False):
+    def _schedule_menu_refresh(self, delay="0ms"):
+        if self.stopped:
+            return
+        self.hide_for_transition()
+        self.signature = ()
+        self.request_refresh(delay)
+
+    def _check_menu(self):
         if self.stopped or self.refreshing:
             return
-        if ui.active_app().pid != self.owner.pid:
+        try:
+            active = ui.active_app()
+            if self.stopped:
+                return
+            if active is None or active.pid != self.owner.pid:
+                _stop()
+                actions.labels.hide()
+                return
+            menu = ui.active_menu()
+            if self.stopped:
+                return
+            if self.menu_wait is not None:
+                ready = (
+                    menu == self.menu_wait_target
+                    if self.menu_wait == "back"
+                    else menu is not None and menu != self.menu
+                )
+                returned_to_window = (
+                    self.menu_wait == "back"
+                    and self.menu_back_fallback
+                    and menu is None
+                )
+                if ready or returned_to_window:
+                    self.menu_wait = None
+                    self.menu_wait_target = None
+                    self.menu_hover_target = None
+                    self.menu_hover_position = None
+                    self.menu_back_fallback = False
+                    self.request_refresh()
+                    if returned_to_window:
+                        app.notify(
+                            "Application control labels",
+                            "The parent menu did not respond; showing application "
+                            "controls instead.",
+                        )
+                    return
+                self.menu_wait_remaining -= 1
+                if (
+                    self.menu_wait == "select"
+                    and self.menu_hover_target is not None
+                    and menu == self.menu
+                    and self.menu_wait_remaining
+                    <= MENU_WAIT_TICKS - MENU_HOVER_DELAY_TICKS
+                ):
+                    self._hover_submenu()
+                    if self.stopped:
+                        return
+                if (
+                    self.menu_wait == "back"
+                    and self.menu_wait_target is not None
+                    and not self.menu_back_fallback
+                    and menu == self.menu
+                    and self.menu_wait_remaining
+                    <= MENU_WAIT_TICKS - MENU_BACK_FALLBACK_TICKS
+                ):
+                    self._fallback_back()
+                    if self.stopped:
+                        return
+                if self.menu_wait_remaining <= 0:
+                    waiting = self.menu_wait
+                    _stop()
+                    actions.labels.hide()
+                    if waiting == "back":
+                        app.notify(
+                            "Application control labels",
+                            "Unable to return to the parent menu.",
+                        )
+                    elif menu is not None:
+                        app.notify(
+                            "Application control labels",
+                            "No new selectable submenu appeared.",
+                        )
+                return
+            if menu != self.menu:
+                self._schedule_menu_refresh()
+        except (AttributeError, RuntimeError, ui.UIErr):
+            self._query_failed()
+
+    def _start_menu_wait(self, kind, expected=None):
+        if self.refresh_job is not None:
+            cron.cancel(self.refresh_job)
+            self.refresh_job = None
+        self._cancel_deferred()
+        self.menu_wait = kind
+        self.menu_wait_target = expected
+        self.menu_wait_remaining = MENU_WAIT_TICKS
+        self.menu_hover_target = None
+        self.menu_hover_position = None
+        self.menu_back_fallback = False
+        self.signature = ()
+
+    def _transition_focus_valid(self):
+        active = ui.active_app()
+        if self.stopped:
+            return False
+        if active is None or active.pid != self.owner.pid:
+            _stop()
+            actions.labels.hide()
+            return False
+        window = self.owner.element.get("AXFocusedWindow")
+        if self.stopped:
+            return False
+        if window != self.window:
+            _stop()
+            actions.labels.hide()
+            app.notify(
+                "Application control labels",
+                "The focused window changed. Say 'show application numbers' again.",
+            )
+            return False
+        return True
+
+    def _hover_submenu(self):
+        target = self.menu_hover_target
+        position = self.menu_hover_position
+        self.menu_hover_target = None
+        self.menu_hover_position = None
+        try:
+            if ctrl.mouse_pos() != position or not self._transition_focus_valid():
+                return
+            point = _submenu_hover_point(target, self.menu)
+            if (
+                self.stopped
+                or point is None
+                or ctrl.mouse_pos() != position
+                or not self._transition_focus_valid()
+                or ui.active_menu() != self.menu
+                or self.stopped
+            ):
+                return
+            actions.mouse_move(*point)
+        except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
+            if self.stopped:
+                return
+            logging.exception("Application labels: unable to hover submenu")
+            _stop()
+            actions.labels.hide()
+            app.notify(
+                "Application control labels", "Unable to open the selected submenu."
+            )
+
+    def _fallback_back(self):
+        try:
+            if (
+                not self._transition_focus_valid()
+                or ui.active_menu() != self.menu
+                or self.stopped
+            ):
+                return
+            self.menu_back_fallback = True
+            self.menu_wait_remaining = MENU_WAIT_TICKS
+            actions.key("esc")
+        except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
+            if self.stopped:
+                return
+            logging.exception("Application labels: unable to leave submenu")
+            _stop()
+            actions.labels.hide()
+            app.notify(
+                "Application control labels", "Unable to return to the parent menu."
+            )
+
+    def refresh(self, force=False):
+        if self.stopped or self.refreshing or self.menu_wait is not None:
+            return
+        active = ui.active_app()
+        if self.stopped:
+            return
+        if active is None or active.pid != self.owner.pid:
+            _stop()
             actions.labels.hide()
             return
 
@@ -444,16 +629,26 @@ class ApplicationLabelSession(LabelSession):
         try:
             self._cancel_deferred()
             window = self.owner.element.get("AXFocusedWindow")
-            targets, deferred = _controls(self.owner)
+            menu = ui.active_menu()
+            targets, deferred = _controls(self.owner, menu, window)
+            if self.stopped:
+                return
+            if ui.active_menu() != menu:
+                self._schedule_menu_refresh()
+                return
             if force and targets and deferred:
                 # Show the primary surface before walking secondary web areas.
-                self._update(window, targets, force)
+                self._update(window, menu, targets, force)
                 if not self.stopped:
                     self.deferred_job = cron.after(
                         "0ms", lambda: self._append_deferred(window, targets, deferred)
                     )
                 return
-            self._update(window, targets + _deferred_controls(deferred, targets), force)
+            extra = _deferred_controls(deferred, targets)
+            if ui.active_menu() != menu:
+                self._schedule_menu_refresh()
+                return
+            self._update(window, menu, targets + extra, force)
         except (AttributeError, RuntimeError, ui.UIErr):
             self._query_failed()
         finally:
@@ -461,37 +656,71 @@ class ApplicationLabelSession(LabelSession):
 
     def _append_deferred(self, window, targets, deferred):
         self.deferred_job = None
-        if self.stopped or ui.active_app().pid != self.owner.pid:
+        active = ui.active_app()
+        if self.stopped or active is None or active.pid != self.owner.pid:
             return
         try:
-            if self.owner.element.get("AXFocusedWindow") != window:
-                self.request_refresh()
+            if (
+                self.owner.element.get("AXFocusedWindow") != window
+                or ui.active_menu() is not None
+            ):
+                self._schedule_menu_refresh()
                 return
             extra = _deferred_controls(deferred, targets)
+            if ui.active_menu() is not None:
+                self._schedule_menu_refresh()
+                return
             if extra:
-                self._update(window, targets + extra, force=False)
+                self._update(window, None, targets + extra, force=False)
         except (AttributeError, RuntimeError, ui.UIErr):
             self._query_failed()
 
-    def _update(self, window, targets, force):
+    def _update(self, window, menu, targets, force):
+        if self.stopped:
+            return
         signature = _signature(targets)
-        if not force and signature == self.signature and window == self.window:
+        if self.stopped:
+            return
+        if (
+            not force
+            and signature == self.signature
+            and window == self.window
+            and menu == self.menu
+        ):
             return
         if not targets:
+            if menu is not None:
+                if menu != self.empty_menu:
+                    self.empty_menu = menu
+                    self.empty_menu_attempts = 0
+                self.empty_menu_attempts += 1
+                if self.empty_menu_attempts < MENU_WAIT_TICKS:
+                    self._schedule_menu_refresh(MENU_POLL_INTERVAL)
+                    return
             _stop()
             actions.labels.hide()
             app.notify(
                 "Application control labels",
-                "The focused window exposes no visible pressable controls.",
+                "The active menu exposes no visible pressable controls."
+                if menu is not None
+                else "The focused window exposes no visible pressable controls.",
             )
             return
+        self.empty_menu = None
+        self.empty_menu_attempts = 0
         self.targets = targets
-        self.labelled = [_label_element(target) for target in targets]
+        self.labelled = [
+            _label_element(target, in_menu=menu is not None) for target in targets
+        ]
         self.window = window
+        self.menu = menu
         self.signature = signature
-        self.render(self.labelled)
+        if self.render(self.labelled) and not self.stopped:
+            session_ctx.tags = ["user.application_labels_session"]
 
     def _query_failed(self):
+        if self.stopped:
+            return
         logging.exception("Application labels: unable to query focused controls")
         _stop()
         actions.labels.hide()
@@ -506,9 +735,24 @@ class ApplicationLabelSession(LabelSession):
             self.deferred_job = None
 
     def select(self, label):
-        if ui.active_app().pid != self.owner.pid:
+        active = ui.active_app()
+        if self.stopped:
+            return
+        if active is None or active.pid != self.owner.pid:
+            _stop()
             actions.labels.hide()
             app.notify("Application control labels", "The active application changed.")
+            return
+        if self.refreshing:
+            app.notify(
+                "Application control labels",
+                "Wait for the numbers to finish refreshing.",
+            )
+            return
+        if self.menu_wait is not None:
+            app.notify(
+                "Application control labels", "Wait for the menu to finish opening."
+            )
             return
         if not isinstance(label, int) or not 1 <= label <= len(self.targets):
             actions.labels.hide()
@@ -520,6 +764,13 @@ class ApplicationLabelSession(LabelSession):
 
         target = self.targets[label - 1]
         try:
+            if ui.active_menu() != self.menu:
+                self._schedule_menu_refresh()
+                app.notify(
+                    "Application control labels",
+                    "The active menu changed. Choose a refreshed number.",
+                )
+                return
             if self.owner.element.get("AXFocusedWindow") != self.window:
                 actions.labels.hide()
                 app.notify(
@@ -527,26 +778,52 @@ class ApplicationLabelSession(LabelSession):
                     "The focused window changed. Say 'show application numbers' again.",
                 )
                 return
-            if settings.get(
-                "user.accessibility_defer_web_areas"
-            ) and not _in_visible_web_area(target, []):
+            if (
+                self.menu is None
+                and settings.get("user.accessibility_defer_web_areas")
+                and not _in_visible_web_area(target, [])
+            ):
                 actions.labels.hide()
                 app.notify(
                     "Application control labels",
                     "The control's web area is covered. Show application numbers again.",
                 )
                 return
-            expand = _may_expand(target)
-            self.preserve_hide = expand
-            if self.labelled[label - 1] is target:
+            menu_selection = self.menu is not None
+            expand = not menu_selection and _may_expand(target)
+            activation_target = _row_activation_target(target)
+            if self.stopped:
+                return
+            if menu_selection:
+                self._start_menu_wait("select")
+            elif expand:
+                self.signature = ()
+            self.preserve_hide = menu_selection or expand
+            native_selection = (
+                self.labelled[label - 1] is target and activation_target is target
+            )
+            if native_selection:
                 actions.next(label)
             else:
-                # The badge is on the row's text; press the row it stands for.
-                target.perform("AXPress")
+                activation_target.perform("AXPress")
+                if self.stopped:
+                    return
                 actions.labels.hide()
-            if expand:
+            if menu_selection and not self.stopped:
+                if native_selection:
+                    actions.labels.hide()
+                if (
+                    not self.stopped
+                    and target.get("AXRole") == "AXMenuItem"
+                    and target.get("AXHasPopup") is True
+                ):
+                    self.menu_hover_position = ctrl.mouse_pos()
+                    self.menu_hover_target = target
+            elif expand and not self.stopped:
                 self.request_refresh("100ms")
         except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
+            if self.stopped:
+                return
             logging.exception("Application labels: unable to select target")
             actions.labels.hide()
             app.notify(
@@ -556,12 +833,91 @@ class ApplicationLabelSession(LabelSession):
         finally:
             self.preserve_hide = False
 
+    def back(self):
+        try:
+            active = ui.active_app()
+            if self.stopped:
+                return
+            if active is None or active.pid != self.owner.pid:
+                _stop()
+                actions.labels.hide()
+                app.notify(
+                    "Application control labels", "The active application changed."
+                )
+                return
+            if self.refreshing:
+                app.notify(
+                    "Application control labels",
+                    "Wait for the numbers to finish refreshing.",
+                )
+                return
+            if self.menu_wait is not None:
+                app.notify(
+                    "Application control labels",
+                    "Wait for the menu to finish opening.",
+                )
+                return
+            menu = ui.active_menu()
+            if menu != self.menu:
+                self._schedule_menu_refresh()
+                app.notify(
+                    "Application control labels",
+                    "The active menu changed. Wait for the numbers to refresh.",
+                )
+                return
+            if menu is None:
+                app.notify(
+                    "Application control labels",
+                    "Already showing application controls.",
+                )
+                return
+
+            parent = menu_parent(menu)
+            parent = (
+                parent
+                if parent is not None and parent.get("AXRole") == "AXMenu"
+                else None
+            )
+            opener = menu_opener(parent) if parent is not None else None
+            if self.stopped:
+                return
+            self._start_menu_wait("back", parent)
+            self.preserve_hide = True
+            try:
+                actions.labels.hide()
+                if self.stopped:
+                    return
+                # The visible-label context would otherwise intercept Escape.
+                self.context.tags = []
+                if opener is not None:
+                    opener.perform("AXPress")
+                elif parent is not None:
+                    actions.key("left")
+                else:
+                    actions.key("esc")
+            finally:
+                self.preserve_hide = False
+        except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
+            if self.stopped:
+                return
+            logging.exception("Application labels: unable to return from menu")
+            _stop()
+            actions.labels.hide()
+            app.notify(
+                "Application control labels", "Unable to return to the parent menu."
+            )
+
     def stop(self):
+        if self.stopped:
+            return
+        super().stop()
+        session_ctx.tags = []
         if self.refresh_job is not None:
             cron.cancel(self.refresh_job)
             self.refresh_job = None
         self._cancel_deferred()
-        super().stop()
+        self.menu_hover_target = None
+        self.menu_hover_position = None
 
 
 def _stop():
@@ -573,6 +929,7 @@ def _stop():
 
 def _show_application_numbers():
     global _session
+    actions.labels.hide()
     _stop()
     owner = ui.active_app()
     if owner is None:
@@ -608,6 +965,13 @@ class Actions:
         """Refresh active application control labels after a UI change."""
         if _session is not None:
             _session.request_refresh()
+
+    def accessibility_application_numbers_back():
+        """Close one menu level and return to the parent menu or application."""
+        if _session is None:
+            app.notify("Application control labels", "Show application numbers first.")
+            return
+        _session.back()
 
     def accessibility_set_interfaces(enabled: bool, force: bool = False):
         """Enable or disable supported AX interfaces for the active app."""

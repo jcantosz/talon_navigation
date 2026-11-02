@@ -1,6 +1,7 @@
 # Talon Navigation
 
-macOS application-menu/status-bar navigation and local Talon command reports.
+macOS application-control, menu and status-bar navigation, and local Talon
+command reports.
 Install this repository anywhere under Talon's `user` directory. Menu navigation
 requires macOS accessibility support and Talon's native labels API.
 
@@ -110,13 +111,46 @@ Say either timeout command as a separate utterance before dictating. The
 selection persists until changed or Talon reloads these definitions. While long
 is enabled, it affects all speech, not only the three dictation prefixes.
 
+## Application control numbers
+
+- **Show application numbers**: number supported controls in the focused
+  application window. Say a displayed number to activate its control, or
+  **move mouse to &lt;number&gt;** to move the pointer without activating it.
+- If an accessible menu opens, including by mouse, its controls replace the
+  window numbers. Submenus likewise replace their parent menu's numbers.
+- **Numbers back** or **application numbers back**: return from a submenu to
+  its accessible parent, or close the top-level menu and restore window
+  numbers. If the parent cannot be identified or does not respond, Back
+  attempts to close the menu and restore window numbers instead; a failed
+  one-level transition is reported.
+- **Refresh application numbers** or **refresh numbers**: refresh the current
+  surface. **Hide numbers** or Escape stops numbering. Selecting a leaf menu
+  item also ends the session; dismissing a menu manually restores window
+  numbers.
+
+This is separate from Talon's default **show numbers** and does not modify
+Community or the default command files. It enables supported accessibility
+interfaces and filters generic containers, while retaining eligible list rows.
+VS Code uses deferred web-area queries and window clipping; Slack uses window
+clipping. The global clipping default remains off because a window-frame
+clip can include controls hidden inside a scroll area. VS Code's query depth
+is unlimited.
+
+Only menus exposed as macOS accessibility menus are detected automatically;
+custom popovers may not be. Row selection uses a constrained child-group
+heuristic for applications whose row press is ineffective. Its exact conditions
+and limitations, along with submenu fallbacks, are documented in
+[accessibility/README.md](accessibility/README.md).
+
 ## Menu navigation
 
 - **Show menu labels** or **menu labels**: label the active application's menu by title.
 - **Show menu numbers**: label it by number.
 - Say the displayed title or number to select an item. Each submenu replaces the
   previous labels and keeps the same label style.
-- **Menu back**: close one menu level and relabel the parent.
+- **Menu back**: close one menu level and relabel the parent. If the parent
+  does not respond, it attempts to close the menu and relabel the application
+  menu bar instead, with a notification.
 - **Hide menu labels** or **hide menu numbers**: stop labeling.
 
 The exact `show menu numbers` rule uses a dedicated tag so it overrides the
@@ -239,9 +273,10 @@ similarity, and full recognition precedence are not resolved.
 
 ## Lint and tests
 
-Menu and status navigation share label rendering, active-context, polling, and
-cancellation behavior through [`lib/labels.py`](lib/labels.py). Feature modules
-own only their navigation-specific state and accessibility traversal.
+Application, menu, and status navigation share label rendering, active-context,
+polling, cancellation, and menu-ancestry helpers through
+[`lib/labels.py`](lib/labels.py). Feature modules retain their own
+navigation-specific state and accessibility traversal.
 
 The checker runs Ruff's Python syntax/lint checks, Python formatting checks, the
 Tree-sitter Talon parser and Cursorless formatter, then all unit tests. It checks
@@ -307,8 +342,9 @@ Or, with an existing Python 3.10+ virtual environment:
 ```
 
 Tests use Python's standard library and mocked Talon APIs, so Talon does not need
-to be running. They cover menu/status traversal and back navigation, status
-parent-based discovery, slider safety, grammar analysis, report
+to be running. They cover application row activation and menu transitions,
+menu/status traversal and back navigation, status parent-based discovery,
+slider safety, grammar analysis, report
 views and HTML escaping, report regeneration, browser opening, and explicit
 failure notifications. Test paths are relative to the repository, not a specific
 user's installation.

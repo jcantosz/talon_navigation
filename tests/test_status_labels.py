@@ -638,6 +638,54 @@ class StatusLabelsTests(unittest.TestCase):
         self.assertEqual(self.icon.perform.call_count, 2)
         self.actions.key.assert_not_called()
 
+    def test_submenu_back_uses_verified_parent_menu_opener(self):
+        parent = Element("AXMenu")
+        opener = Element("AXMenuBarItem", children=[parent], actions=("AXPress",))
+        item = Element("AXMenuItem", AXParent=parent)
+        submenu = Element("AXMenu", AXParent=item)
+        self.commands.status_labels_show(False)
+        session = self.module._session
+        session.surface = self.module.Surface(submenu, self.owner, [])
+        session.owner = self.owner
+        self.menu = submenu
+
+        self.commands.status_labels_back()
+
+        opener.perform.assert_called_once_with("AXPress")
+        self.actions.key.assert_not_called()
+
+    def test_submenu_back_recognizes_a_direct_parent_menu(self):
+        parent = Element("AXMenu")
+        submenu = Element("AXMenu", AXParent=parent)
+        self.commands.status_labels_show(False)
+        session = self.module._session
+        session.surface = self.module.Surface(submenu, self.owner, [])
+        session.owner = self.owner
+        self.menu = submenu
+
+        self.commands.status_labels_back()
+
+        self.actions.key.assert_called_once_with("left")
+        self.assertFalse(session.returning)
+        self.assertTrue(session.requires_change)
+
+    def test_submenu_back_does_not_press_the_status_icon_opener(self):
+        parent = Element("AXMenu", AXParent=self.icon)
+        self.icon.attrs["AXChildren"] = [parent]
+        item = Element("AXMenuItem", AXParent=parent)
+        submenu = Element("AXMenu", AXParent=item)
+        self.commands.status_labels_show(False)
+        session = self.module._session
+        session.surface = self.module.Surface(submenu, self.owner, [])
+        session.owner = self.owner
+        session.opener = self.icon
+        self.menu = submenu
+
+        self.commands.status_labels_back()
+
+        self.icon.perform.assert_not_called()
+        self.actions.key.assert_called_once_with("left")
+
     def test_back_reuses_known_icon_providers_without_rescanning_every_app(self):
         session, _ = self.open_panel()
         self.commands.status_labels_back()

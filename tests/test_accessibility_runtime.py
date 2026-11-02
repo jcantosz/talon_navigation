@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVE_TAG = "user.application_labels_active"
+SESSION_TAG = "user.application_labels_session"
 
 
 class UIErr(Exception):
@@ -61,7 +62,9 @@ class FakeTalon:
         self.overrides = {}
         self.dispatching = []
         self.cron = types.SimpleNamespace(
-            after=Mock(side_effect=lambda *_: object()), cancel=Mock()
+            after=Mock(side_effect=lambda *_: object()),
+            interval=Mock(side_effect=lambda *_: object()),
+            cancel=Mock(),
         )
         self.settings = {
             "user.accessibility_query_max_depth": 0,
@@ -71,8 +74,10 @@ class FakeTalon:
             "user.accessibility_activation_disallowed_bundles": "",
         }
         self.query_results = []
+        self.mouse_pos = Mock(return_value=(30, 40))
         self.active_app = None
         self.active_window = types.SimpleNamespace(id=1)
+        self.active_menu = None
         self.user = types.SimpleNamespace()
         fake = self
 
@@ -153,7 +158,7 @@ class FakeTalon:
             ActionFailed=ActionFailed,
             active_app=lambda: self.active_app,
             active_window=lambda: self.active_window,
-            active_menu=lambda: None,
+            active_menu=lambda: self.active_menu,
             element_at=Mock(),
             register=Mock(),
         )
@@ -163,6 +168,8 @@ class FakeTalon:
             actions=types.SimpleNamespace(
                 labels=labels,
                 next=self.next_action,
+                key=Mock(),
+                mouse_move=Mock(),
                 sleep=Mock(),
                 user=self.user,
             ),
@@ -171,6 +178,7 @@ class FakeTalon:
                 query_all=lambda *args, **kwargs: list(self.query_results)
             ),
             cron=self.cron,
+            ctrl=types.SimpleNamespace(mouse_pos=self.mouse_pos),
             imgui=types.SimpleNamespace(
                 GUI=object,
                 open=lambda: (
@@ -229,6 +237,125 @@ class ApplicationLabelTests(unittest.TestCase):
 
     def assert_session_active(self, active):
         self.assertEqual(ACTIVE_TAG in self.talon.active_tags(), active)
+
+    def test_application_numbers_stop_an_existing_label_session(self):
+        for tag in ("user.menu_labels_active", "user.status_labels_active"):
+            with self.subTest(tag=tag):
+                self.talon.dispatch_labels("hide")
+                publisher = self.talon.Context()
+                publisher.tags = [tag]
+                context = self.talon.Context()
+                context.matches = f"tag: {tag}"
+                stopped = Mock()
+
+                def hide_foreign():
+                    self.talon.next_action()
+                    publisher.tags = []
+                    stopped()
+
+                self.talon.overrides[(id(context), "labels")] = type(
+                    "ForeignLabels", (), {"hide": staticmethod(hide_foreign)}
+                )
+
+                self.actions.accessibility_show_application_numbers()
+
+                stopped.assert_called_once()
+                self.assertNotIn(tag, self.talon.active_tags())
+                self.assert_session_active(True)
+
+    def test_stopped_session_cannot_clear_replacement_session_tag(self):
+        self.actions.accessibility_show_application_numbers()
+        previous = self.module._session
+        self.actions.accessibility_show_application_numbers()
+        replacement = self.module._session
+
+        previous.stop()
+
+        self.assertTrue(previous.stopped)
+        self.assertIs(self.module._session, replacement)
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+    def test_stopped_render_does_not_hide_a_replacement_session(self):
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        native_show = self.module.actions.labels.show
+        switched = False
+
+        def show_then_replace(targets):
+            nonlocal switched
+            native_show(targets)
+            if not switched:
+                switched = True
+                self.talon.dispatch_labels("hide")
+                self.actions.accessibility_show_application_numbers()
+                self.talon.native_calls.clear()
+
+        with patch.object(
+            self.module.actions.labels, "show", side_effect=show_then_replace
+        ):
+            session.refresh(force=True)
+
+        self.assertTrue(session.stopped)
+        self.assertIsNotNone(self.module._session)
+        self.assertIsNot(self.module._session, session)
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+    def test_stopped_render_hides_its_own_orphaned_labels(self):
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        native_show = self.module.actions.labels.show
+
+        def show_then_stop(targets):
+            native_show(targets)
+            self.module._stop()
+
+        with patch.object(
+            self.module.actions.labels, "show", side_effect=show_then_stop
+        ):
+            session.refresh(force=True)
+
+        self.assertTrue(session.stopped)
+        self.assertIsNone(self.module._session)
+        self.assertEqual(self.talon.native_calls[-1], ("hide", ()))
+
+    def test_replaced_session_does_not_select_new_session_label(self):
+        self.actions.accessibility_show_application_numbers()
+        previous = self.module._session
+
+        def replace_session(target):
+            self.talon.dispatch_labels("hide")
+            self.actions.accessibility_show_application_numbers()
+            return target
+
+        with patch.object(
+            self.module, "_row_activation_target", side_effect=replace_session
+        ):
+            self.talon.dispatch_labels("select", 1)
+
+        self.assertTrue(previous.stopped)
+        self.assertIsNot(self.module._session, previous)
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+    def test_row_activation_does_not_hide_a_replacement_session(self):
+        row, _ = self.text_row(frame(x=40, y=25, width=60, height=18))
+        self.talon.query_results = [row]
+        self.actions.accessibility_show_application_numbers()
+        previous = self.module._session
+
+        def replace_session(action):
+            self.talon.dispatch_labels("hide")
+            self.actions.accessibility_show_application_numbers()
+            self.talon.native_calls.clear()
+
+        with patch.object(row, "perform", side_effect=replace_session):
+            self.talon.dispatch_labels("select", 1)
+
+        self.assertTrue(previous.stopped)
+        self.assertIsNot(self.module._session, previous)
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
 
     def test_application_query_uses_configured_depth(self):
         for configured, expected in ((0, -1), (13, 13), (40, 40)):
@@ -439,6 +566,76 @@ class ApplicationLabelTests(unittest.TestCase):
         self.assertIn(("select", (2,)), self.talon.native_calls)
         self.assertEqual(row.performed, [])
 
+    def test_row_activates_single_content_group_at_coverage_boundary(self):
+        row, text = self.text_row(frame(x=40, y=25, width=60, height=18))
+        child = row.get("AXChildren")[0]
+        child.attrs.update(
+            AXParent=row, AXFrame=frame(x=20, y=23, width=320, height=24)
+        )
+        child.actions = ["AXPress"]
+        self.talon.query_results = [row, child]
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [row])
+        self.assertEqual(self.module._session.labelled, [text])
+        self.talon.dispatch_labels("select", 1)
+
+        self.assertEqual(child.performed, ["AXPress"])
+        self.assertEqual(row.performed, [])
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+
+    def test_row_content_group_is_used_even_without_text_substitution(self):
+        child = Element(AXRole="AXGroup", AXFrame=frame(x=20, width=360))
+        row = Element(AXRole="AXRow", AXFrame=frame(x=0, width=400), AXChildren=[child])
+        child.attrs["AXParent"] = row
+        self.talon.query_results = [row, child]
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.labelled, [row])
+        self.talon.dispatch_labels("select", 1)
+
+        self.assertEqual(child.performed, ["AXPress"])
+        self.assertEqual(row.performed, [])
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+
+    def test_row_content_group_requires_unambiguous_contained_coverage(self):
+        cases = (
+            ("narrow", frame(x=20, width=319.9), {}, "AXGroup"),
+            ("short", frame(x=20, y=23, width=320, height=23.9), {}, "AXGroup"),
+            ("outside", frame(x=-2, width=400), {}, "AXGroup"),
+            ("disabled", frame(x=20, width=360), {"AXEnabled": False}, "AXGroup"),
+            ("hidden", frame(x=20, width=360), {"AXHidden": True}, "AXGroup"),
+            ("button", frame(x=20, width=360), {}, "AXButton"),
+            ("invalid", None, {}, "AXGroup"),
+        )
+        for name, child_frame, attrs, role in cases:
+            with self.subTest(name=name):
+                row = Element(AXRole="AXRow", AXFrame=frame(x=0, width=400))
+                child = Element(AXRole=role, AXFrame=child_frame, **attrs)
+                row.attrs["AXChildren"] = [child]
+                self.assertIs(self.module._row_activation_target(row), row)
+
+        row = Element(AXRole="AXRow", AXFrame=frame(x=0, width=400))
+        row.attrs["AXChildren"] = [
+            Element(AXRole="AXGroup", AXFrame=frame(x=20, width=360)),
+            Element(AXRole="AXButton", AXFrame=frame(x=340, width=20)),
+        ]
+        self.assertIs(self.module._row_activation_target(row), row)
+
+    def test_row_content_group_failure_is_reported_without_pressing_row(self):
+        row, _ = self.text_row(frame(x=40, y=25, width=60, height=18))
+        child = row.get("AXChildren")[0]
+        child.actions = ["AXPress"]
+        self.talon.query_results = [row]
+        self.actions.accessibility_show_application_numbers()
+        with patch.object(child, "perform", side_effect=ActionFailed("press failed")):
+            self.talon.dispatch_labels("select", 1)
+        self.assertEqual(row.performed, [])
+        self.assertIsNone(self.module._session)
+        self.talon.notify.assert_called_with(
+            "Application control labels", "Unable to activate the selected control."
+        )
+
     def test_transient_query_attribute_error_is_retried_once(self):
         query = Mock(side_effect=[AttributeError("AXRole"), [self.button]])
         with patch.object(self.module.axquery, "query_all", query):
@@ -544,7 +741,10 @@ class ApplicationLabelTests(unittest.TestCase):
                 self.assertEqual(
                     self.module._session.targets, [self.close, self.button]
                 )
-                self.assertEqual(len(self.talon.native_calls), 1)
+                self.assertEqual(
+                    self.talon.native_calls,
+                    [("hide", ()), ("show", ([self.close, self.button],))],
+                )
                 self.assertEqual(query.call_count, 1)
 
     def test_deferred_web_area_errors_are_surfaced(self):
@@ -569,14 +769,14 @@ class ApplicationLabelTests(unittest.TestCase):
             self.application.attrs["AXFocusedWindow"] = Element(AXRole="AXWindow")
             with patch.object(session, "request_refresh") as refresh:
                 self.run_deferred()
-            refresh.assert_called_once_with()
+            refresh.assert_called_once_with("0ms")
             self.assertEqual(session.targets, [self.close, self.button])
 
             self.application.attrs["AXFocusedWindow"] = self.window
             self.actions.accessibility_show_application_numbers()
             job = self.module._session.deferred_job
             self.module._stop()
-            self.talon.cron.cancel.assert_called_with(job)
+            self.talon.cron.cancel.assert_any_call(job)
 
     def test_refresh_collects_deferred_web_areas_synchronously(self):
         query = self.staged_window()
@@ -741,7 +941,7 @@ class ApplicationLabelTests(unittest.TestCase):
         load(self.talon, "accessibility/inventory.py", self.module)
 
         self.assertTrue(session.stopped)
-        self.talon.cron.cancel.assert_called_with(job)
+        self.talon.cron.cancel.assert_any_call(job)
         self.assertIsNone(self.module._session)
 
     def test_selection_after_window_change_is_rejected(self):
@@ -815,6 +1015,19 @@ class ApplicationLabelTests(unittest.TestCase):
         self.assertIsNone(session.refresh_job)
         self.assertEqual(self.talon.native_calls[-1], ("show", ([self.button],)))
 
+    def test_expansion_restores_labels_when_targets_do_not_change(self):
+        self.talon.hide_after_select = True
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+
+        self.talon.dispatch_labels("select", 2)
+        self.talon.cron.after.call_args.args[1]()
+
+        self.assertIs(self.module._session, session)
+        self.assertEqual(
+            self.talon.native_calls[-1], ("show", ([self.button, self.popup],))
+        )
+
     def test_invalid_number_is_rejected_without_native_selection(self):
         self.actions.accessibility_show_application_numbers()
 
@@ -836,7 +1049,7 @@ class ApplicationLabelTests(unittest.TestCase):
 
         self.assertTrue(session.stopped)
         self.assertIsNone(self.module._session)
-        self.talon.cron.cancel.assert_called_once_with(job)
+        self.talon.cron.cancel.assert_any_call(job)
         self.assert_session_active(False)
 
     def test_unsupported_activation_attributes_are_not_an_operational_failure(self):
@@ -845,6 +1058,812 @@ class ApplicationLabelTests(unittest.TestCase):
 
         self.talon.notify.assert_called_with(
             "Accessibility interfaces", "Enabled: No supported writable interfaces"
+        )
+
+
+class ApplicationMenuTests(unittest.TestCase):
+    def setUp(self):
+        self.talon = FakeTalon()
+        self.window = Element(
+            AXRole="AXWindow", AXFrame=frame(x=0, y=0, width=500, height=500)
+        )
+        self.application = Element(AXRole="AXApplication", AXFocusedWindow=self.window)
+        self.talon.active_app = types.SimpleNamespace(
+            pid=1,
+            name="Example",
+            bundle="com.example",
+            created_at=0,
+            element=self.application,
+        )
+        self.button = Element(AXRole="AXButton", AXTitle="Window", AXFrame=frame())
+        self.item = Element(AXRole="AXMenuItem", AXTitle="Menu", AXFrame=frame())
+        self.menu = Element(
+            AXRole="AXMenu", AXFrame=frame(x=0, y=0, width=300, height=300)
+        )
+        self.menu.actions = ["AXCancel"]
+        self.results = {id(self.window): [self.button], id(self.menu): [self.item]}
+        self.module = load(self.talon, "accessibility/inventory.py")
+        self.actions = self.module.Actions
+        self.query = Mock(
+            side_effect=lambda *args, root, **kwargs: self.results[id(root)]
+        )
+        self.module.axquery.query_all = self.query
+
+    def start(self, menu=None):
+        self.talon.active_menu = menu
+        self.actions.accessibility_show_application_numbers()
+        return self.module._session
+
+    def finish_refresh(self):
+        self.talon.cron.after.call_args.args[1]()
+
+    def nested_menu(self):
+        owner = Element(AXRole="AXMenuItem", AXParent=self.menu)
+        submenu = Element(
+            AXRole="AXMenu",
+            AXParent=owner,
+            AXFrame=frame(x=300, y=0, width=150, height=200),
+        )
+        item = Element(AXRole="AXMenuItem", AXTitle="Submenu", AXFrame=frame())
+        self.results[id(submenu)] = [item]
+        return submenu, item
+
+    def test_initially_open_menu_numbers_only_menu_controls(self):
+        session = self.start(self.menu)
+
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([self.item],)))
+        self.assertEqual(self.query.call_count, 1)
+        self.assertIs(self.query.call_args.kwargs["root"], self.menu)
+
+    def test_menu_text_anchor_labels_and_presses_the_logical_item(self):
+        shortcut = Element(AXRole="AXStaticText", AXFrame=frame(x=70))
+        title = Element(AXRole="AXStaticText", AXFrame=frame(x=25))
+        group = Element(AXRole="AXGroup", AXChildren=[shortcut, title])
+        self.item.attrs["AXChildren"] = [group]
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.targets, [self.item])
+        self.assertEqual(session.labelled, [title])
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([title],)))
+        self.talon.native_calls.clear()
+        self.talon.dispatch_labels("select", 1)
+        self.assertEqual(self.item.performed, ["AXPress"])
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+        self.assertEqual(self.talon.native_calls.count(("hide", ())), 1)
+
+    def test_menu_text_anchor_ignores_nested_controls_and_menus(self):
+        nested_text = Element(AXRole="AXStaticText", AXFrame=frame())
+        button = Element(AXRole="AXButton", AXChildren=[nested_text])
+        submenu = Element(AXRole="AXMenu", AXChildren=[nested_text])
+        self.item.attrs["AXChildren"] = [button, submenu]
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.labelled, [self.item])
+
+    def test_menu_text_anchor_ignores_hidden_and_outside_text(self):
+        hidden = Element(AXRole="AXStaticText", AXHidden=True, AXFrame=frame())
+        outside = Element(AXRole="AXStaticText", AXFrame=frame(x=500))
+        self.item.attrs["AXChildren"] = [hidden, outside]
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.labelled, [self.item])
+
+    def test_window_menu_item_keeps_native_label_and_selection(self):
+        text = Element(AXRole="AXStaticText", AXFrame=frame())
+        self.item.attrs["AXChildren"] = [text]
+        self.results[id(self.window)] = [self.item]
+
+        session = self.start()
+
+        self.assertEqual(session.labelled, [self.item])
+        self.talon.dispatch_labels("select", 1)
+        self.assertIn(("select", (1,)), self.talon.native_calls)
+
+    def test_text_anchored_submenu_still_uses_hover_fallback(self):
+        title = Element(AXRole="AXStaticText", AXFrame=frame(x=25))
+        self.item.attrs.update(AXChildren=[title], AXParent=self.menu, AXHasPopup=True)
+        session = self.start(self.menu)
+
+        self.talon.dispatch_labels("select", 1)
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+            session._check_menu()
+
+        self.assertEqual(self.item.performed, ["AXPress"])
+        self.module.actions.mouse_move.assert_called_once_with(50, 35)
+
+    def test_menu_query_uses_menu_clip_not_window_clip(self):
+        self.talon.settings["user.accessibility_clip_to_surface"] = True
+        outside = Element(AXRole="AXMenuItem", AXFrame=frame(x=400))
+        self.results[id(self.menu)] = [self.item, outside]
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.targets, [self.item])
+        self.assertIs(self.query.call_args.kwargs["root"], self.menu)
+        self.assertFalse(self.query.call_args.kwargs["visible_only"])
+
+    def test_diagnostic_surfaces_still_include_window_and_menu(self):
+        self.talon.active_menu = self.menu
+        self.assertEqual(
+            self.module.focused_surfaces(self.talon.active_app),
+            [("focused-window", self.window), ("active-menu", self.menu)],
+        )
+
+    def test_menu_poll_does_not_repeat_window_queries(self):
+        session = self.start()
+
+        self.talon.cron.interval.assert_called_once_with("100ms", session._check_menu)
+        for _ in range(10):
+            session._check_menu()
+
+        self.assertEqual(self.query.call_count, 1)
+        self.talon.cron.after.assert_not_called()
+
+    def test_stopped_menu_poll_does_not_hide_replacement_session(self):
+        session = self.start()
+        switched = False
+
+        def switch_during_poll():
+            nonlocal switched
+            if not switched:
+                switched = True
+                self.talon.dispatch_labels("hide")
+                self.actions.accessibility_show_application_numbers()
+                self.talon.native_calls.clear()
+                return self.menu
+            return None
+
+        with patch.object(
+            self.module.ui, "active_menu", side_effect=switch_during_poll
+        ):
+            session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+    def test_stopped_menu_poll_error_does_not_stop_replacement_session(self):
+        session = self.start()
+        switched = False
+
+        def fail_after_switch():
+            nonlocal switched
+            if not switched:
+                switched = True
+                self.talon.dispatch_labels("hide")
+                self.actions.accessibility_show_application_numbers()
+                self.talon.native_calls.clear()
+                raise UIErr("old session failed")
+            return None
+
+        with patch.object(self.module.ui, "active_menu", side_effect=fail_after_switch):
+            session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+        self.talon.notify.assert_not_called()
+
+    def test_stopped_refresh_does_not_stop_replacement_on_empty_result(self):
+        session = self.start()
+        switched = False
+
+        def finish_after_switch(owner, menu, window):
+            nonlocal switched
+            if not switched:
+                switched = True
+                self.talon.dispatch_labels("hide")
+                self.actions.accessibility_show_application_numbers()
+                self.talon.native_calls.clear()
+                return [], []
+            return [self.button], []
+
+        with patch.object(self.module, "_controls", side_effect=finish_after_switch):
+            session.refresh(force=True)
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.assertEqual(self.module._session.targets, [self.button])
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+        self.talon.notify.assert_not_called()
+
+    def test_stopped_focus_check_does_not_hide_replacement_session(self):
+        for operation in ("select", "back", "refresh"):
+            with self.subTest(operation=operation):
+                session = self.start(self.menu)
+                switched = False
+
+                def change_session_during_focus_check():
+                    nonlocal switched
+                    if not switched:
+                        switched = True
+                        self.talon.dispatch_labels("hide")
+                        self.actions.accessibility_show_application_numbers()
+                        self.talon.native_calls.clear()
+                        return types.SimpleNamespace(pid=2)
+                    return self.talon.active_app
+
+                with patch.object(
+                    self.module.ui,
+                    "active_app",
+                    side_effect=change_session_during_focus_check,
+                ):
+                    if operation == "select":
+                        self.talon.dispatch_labels("select", 1)
+                    elif operation == "back":
+                        self.actions.accessibility_application_numbers_back()
+                    else:
+                        session.refresh()
+
+                self.assertTrue(session.stopped)
+                self.assertIsNot(self.module._session, session)
+                self.assertNotIn(("hide", ()), self.talon.native_calls)
+                self.talon.notify.assert_not_called()
+
+    def test_mouse_opened_menu_replaces_window_and_close_restores_it(self):
+        session = self.start()
+        self.talon.active_menu = self.menu
+
+        session._check_menu()
+        self.assertEqual(self.talon.native_calls[-1], ("hide", ()))
+        self.assertIs(self.module._session, session)
+        self.assertEqual(self.query.call_count, 1)
+        self.finish_refresh()
+
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+        self.assertIs(self.query.call_args.kwargs["root"], self.menu)
+
+        self.talon.active_menu = None
+        session._check_menu()
+        self.finish_refresh()
+
+        self.assertIsNone(session.menu)
+        self.assertEqual(session.targets, [self.button])
+        self.assertIs(self.query.call_args.kwargs["root"], self.window)
+
+    def test_manual_submenu_transition_only_numbers_current_menu(self):
+        session = self.start(self.menu)
+        submenu, item = self.nested_menu()
+        self.talon.active_menu = submenu
+
+        session._check_menu()
+        self.finish_refresh()
+
+        self.assertIs(session.menu, submenu)
+        self.assertEqual(session.targets, [item])
+        self.assertIs(self.query.call_args.kwargs["root"], submenu)
+
+    def test_selection_rejects_stale_window_labels_after_menu_opens(self):
+        session = self.start()
+        self.talon.active_menu = self.menu
+
+        self.talon.dispatch_labels("select", 1)
+
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+        self.assertIs(self.module._session, session)
+        self.assertIn("menu changed", self.talon.notify.call_args.args[1].lower())
+        self.finish_refresh()
+        self.assertEqual(session.targets, [self.item])
+
+    def test_select_and_back_wait_for_in_progress_refresh(self):
+        session = self.start(self.menu)
+        session.refreshing = True
+
+        self.talon.dispatch_labels("select", 1)
+        self.actions.accessibility_application_numbers_back()
+
+        self.assertNotIn(("select", (1,)), self.talon.native_calls)
+        self.module.actions.key.assert_not_called()
+        self.assertIs(self.module._session, session)
+        self.assertEqual(self.talon.notify.call_count, 2)
+        self.assertTrue(
+            all(
+                "refresh" in call.args[1].lower()
+                for call in self.talon.notify.call_args_list
+            )
+        )
+
+    def test_menu_selection_waits_for_delayed_submenu(self):
+        self.talon.hide_after_select = True
+        session = self.start(self.menu)
+        submenu, item = self.nested_menu()
+
+        self.talon.dispatch_labels("select", 1)
+        self.assertIs(self.module._session, session)
+        session._check_menu()
+        self.assertEqual(self.query.call_count, 1)
+        self.talon.active_menu = submenu
+        session._check_menu()
+        self.finish_refresh()
+
+        self.assertIs(session.menu, submenu)
+        self.assertEqual(session.targets, [item])
+
+    def test_submenu_selection_hovers_only_after_native_selection_stalls(self):
+        self.item.attrs.update(AXParent=self.menu, AXHasPopup=True)
+        self.talon.hide_after_select = True
+        session = self.start(self.menu)
+        submenu, item = self.nested_menu()
+
+        self.talon.dispatch_labels("select", 1)
+
+        self.assertIn(("select", (1,)), self.talon.native_calls)
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS - 1):
+            session._check_menu()
+        self.module.actions.mouse_move.assert_not_called()
+        session._check_menu()
+        self.module.actions.mouse_move.assert_called_once_with(50, 35)
+
+        self.talon.active_menu = submenu
+        session._check_menu()
+        self.finish_refresh()
+        self.assertIs(session.menu, submenu)
+        self.assertEqual(session.targets, [item])
+
+    def test_submenu_selection_does_not_hover_if_native_open_succeeds(self):
+        self.item.attrs.update(AXParent=self.menu, AXHasPopup=True)
+        session = self.start(self.menu)
+        submenu, item = self.nested_menu()
+
+        self.talon.dispatch_labels("select", 1)
+        self.talon.active_menu = submenu
+        session._check_menu()
+        self.finish_refresh()
+
+        self.module.actions.mouse_move.assert_not_called()
+        self.assertEqual(session.targets, [item])
+
+    def test_submenu_hover_rejects_stale_or_unsafe_targets(self):
+        for case in (
+            "leaf",
+            "disabled",
+            "hidden",
+            "outside_menu",
+            "invalid_frame",
+            "detached",
+            "mouse_moved",
+            "window_changed",
+        ):
+            with self.subTest(case=case):
+                self.item.attrs.update(
+                    AXParent=self.menu,
+                    AXHasPopup=case != "leaf",
+                    AXEnabled=True,
+                    AXHidden=False,
+                    AXFrame=frame(),
+                )
+                self.application.attrs["AXFocusedWindow"] = self.window
+                self.talon.mouse_pos.reset_mock(side_effect=True)
+                self.talon.mouse_pos.return_value = (30, 40)
+                self.module.actions.mouse_move.reset_mock()
+                session = self.start(self.menu)
+                self.talon.dispatch_labels("select", 1)
+
+                if case == "disabled":
+                    self.item.attrs["AXEnabled"] = False
+                elif case == "hidden":
+                    self.item.attrs["AXHidden"] = True
+                elif case == "outside_menu":
+                    self.item.attrs["AXFrame"] = frame(x=400)
+                elif case == "invalid_frame":
+                    self.item.attrs["AXFrame"] = frame(width=float("nan"))
+                elif case == "detached":
+                    self.item.attrs["AXParent"] = Element(AXRole="AXMenu")
+                elif case == "mouse_moved":
+                    self.talon.mouse_pos.return_value = (31, 40)
+                elif case == "window_changed":
+                    self.application.attrs["AXFocusedWindow"] = Element(
+                        AXRole="AXWindow"
+                    )
+
+                for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+                    session._check_menu()
+
+                self.module.actions.mouse_move.assert_not_called()
+
+    def test_submenu_hover_does_not_move_after_menu_changes_during_validation(self):
+        self.item.attrs.update(AXParent=self.menu, AXHasPopup=True)
+        session = self.start(self.menu)
+        submenu, item = self.nested_menu()
+        self.talon.dispatch_labels("select", 1)
+
+        def change_menu(*args):
+            self.talon.active_menu = submenu
+            return (50, 35)
+
+        with patch.object(self.module, "_submenu_hover_point", side_effect=change_menu):
+            for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+                session._check_menu()
+
+        self.module.actions.mouse_move.assert_not_called()
+        session._check_menu()
+        self.finish_refresh()
+        self.assertEqual(session.targets, [item])
+
+    def test_replaced_session_cannot_move_mouse_from_old_submenu_hover(self):
+        self.item.attrs.update(AXParent=self.menu, AXHasPopup=True)
+        session = self.start(self.menu)
+        self.talon.dispatch_labels("select", 1)
+
+        def replace_session(*args):
+            self.talon.dispatch_labels("hide")
+            self.actions.accessibility_show_application_numbers()
+            self.talon.native_calls.clear()
+            return (50, 35)
+
+        with patch.object(
+            self.module, "_submenu_hover_point", side_effect=replace_session
+        ):
+            for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+                session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.module.actions.mouse_move.assert_not_called()
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+        self.talon.notify.assert_not_called()
+
+    def test_submenu_hover_failure_is_reported(self):
+        self.item.attrs.update(AXParent=self.menu, AXHasPopup=True)
+        session = self.start(self.menu)
+        self.talon.dispatch_labels("select", 1)
+        self.module.actions.mouse_move.side_effect = ActionFailed("mouse failed")
+
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+            session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.talon.notify.assert_called_once_with(
+            "Application control labels", "Unable to open the selected submenu."
+        )
+
+    def test_menu_selection_tolerates_briefly_missing_active_menu(self):
+        self.talon.hide_after_select = True
+        session = self.start(self.menu)
+        submenu, item = self.nested_menu()
+        self.talon.dispatch_labels("select", 1)
+        self.talon.active_menu = None
+        session._check_menu()
+
+        self.assertIs(self.module._session, session)
+        self.talon.active_menu = submenu
+        session._check_menu()
+        self.finish_refresh()
+        self.assertEqual(session.targets, [item])
+
+    def test_menu_leaf_selection_exits_without_relabeling_window(self):
+        self.talon.hide_after_select = True
+        session = self.start(self.menu)
+
+        self.talon.dispatch_labels("select", 1)
+        self.talon.active_menu = None
+        for _ in range(15):
+            session._check_menu()
+
+        self.assertIsNone(self.module._session)
+        self.assertTrue(session.stopped)
+        self.assertEqual(self.query.call_count, 1)
+        self.assertNotIn(("show", ([self.button],)), self.talon.native_calls)
+
+    def test_back_closes_top_menu_and_restores_window(self):
+        session = self.start(self.menu)
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+        self.actions.accessibility_application_numbers_back()
+
+        self.module.actions.key.assert_called_once_with("esc")
+        self.assertEqual(self.menu.performed, [])
+        self.assertIs(self.module._session, session)
+        self.assertNotIn(ACTIVE_TAG, self.talon.active_tags())
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+        self.talon.active_menu = None
+        session._check_menu()
+        self.finish_refresh()
+        self.assertIsNone(session.menu)
+        self.assertEqual(session.targets, [self.button])
+        self.assertIn(ACTIVE_TAG, self.talon.active_tags())
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+    def test_back_uses_escape_if_top_menu_cannot_be_cancelled(self):
+        self.menu.actions = []
+        session = self.start(self.menu)
+
+        self.actions.accessibility_application_numbers_back()
+
+        self.module.actions.key.assert_called_once_with("esc")
+        self.talon.active_menu = None
+        session._check_menu()
+        self.finish_refresh()
+        self.assertEqual(session.targets, [self.button])
+
+    def test_back_closes_one_submenu_and_relabels_parent(self):
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+
+        self.actions.accessibility_application_numbers_back()
+
+        self.module.actions.key.assert_called_once_with("left")
+        self.talon.active_menu = self.menu
+        session._check_menu()
+        self.finish_refresh()
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+
+    def test_back_recognizes_a_direct_parent_menu(self):
+        submenu, _ = self.nested_menu()
+        submenu.attrs["AXParent"] = self.menu
+        session = self.start(submenu)
+
+        self.actions.accessibility_application_numbers_back()
+
+        self.module.actions.key.assert_called_once_with("left")
+        self.talon.active_menu = self.menu
+        session._check_menu()
+        self.finish_refresh()
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+
+    def test_back_falls_back_to_window_if_parent_cannot_be_restored(self):
+        submenu, _ = self.nested_menu()
+        submenu.attrs["AXParent"] = self.menu
+        session = self.start(submenu)
+
+        self.actions.accessibility_application_numbers_back()
+        for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+            session._check_menu()
+
+        self.assertEqual(
+            [call.args for call in self.module.actions.key.call_args_list],
+            [("left",), ("esc",)],
+        )
+        self.talon.active_menu = None
+        session._check_menu()
+        self.finish_refresh()
+
+        self.assertIsNone(session.menu)
+        self.assertEqual(session.targets, [self.button])
+        self.assertIn("application controls", self.talon.notify.call_args.args[1])
+
+    def test_back_fallback_does_not_escape_after_window_changes(self):
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+        self.actions.accessibility_application_numbers_back()
+        self.application.attrs["AXFocusedWindow"] = Element(AXRole="AXWindow")
+
+        for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+            session._check_menu()
+
+        self.module.actions.key.assert_called_once_with("left")
+        self.assertTrue(session.stopped)
+        self.assertIn("window changed", self.talon.notify.call_args.args[1].lower())
+
+    def test_back_fallback_does_not_escape_after_menu_changes_during_validation(self):
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+        self.actions.accessibility_application_numbers_back()
+
+        def change_menu():
+            self.talon.active_menu = Element(AXRole="AXMenu")
+            return True
+
+        with patch.object(session, "_transition_focus_valid", side_effect=change_menu):
+            for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+                session._check_menu()
+
+        self.module.actions.key.assert_called_once_with("left")
+
+    def test_replaced_session_cannot_send_fallback_escape(self):
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+        self.actions.accessibility_application_numbers_back()
+
+        def replace_session():
+            self.talon.dispatch_labels("hide")
+            self.actions.accessibility_show_application_numbers()
+            self.talon.native_calls.clear()
+            return True
+
+        with patch.object(
+            session, "_transition_focus_valid", side_effect=replace_session
+        ):
+            for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+                session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.module.actions.key.assert_called_once_with("left")
+        self.assertNotIn(("hide", ()), self.talon.native_calls)
+
+    def test_back_fallback_escape_failure_is_reported(self):
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+        self.actions.accessibility_application_numbers_back()
+        self.module.actions.key.side_effect = ActionFailed("escape failed")
+
+        for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+            session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.talon.notify.assert_called_once_with(
+            "Application control labels", "Unable to return to the parent menu."
+        )
+
+    def test_submenu_back_uses_verified_parent_menu_opener(self):
+        opener = Element(AXRole="AXMenuBarItem", AXChildren=[self.menu], AXEnabled=True)
+        self.menu.attrs["AXParent"] = opener
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+
+        self.actions.accessibility_application_numbers_back()
+
+        self.assertEqual(opener.performed, ["AXPress"])
+        self.module.actions.key.assert_not_called()
+        self.talon.active_menu = self.menu
+        session._check_menu()
+        self.finish_refresh()
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+
+    def test_replaced_session_does_not_press_a_menu_opener(self):
+        submenu, _ = self.nested_menu()
+        session = self.start(submenu)
+        opener = Element(AXRole="AXMenuBarItem")
+
+        def replace_session(parent):
+            self.talon.dispatch_labels("hide")
+            self.actions.accessibility_show_application_numbers()
+            return opener
+
+        with patch.object(self.module, "menu_opener", side_effect=replace_session):
+            self.actions.accessibility_application_numbers_back()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.assertEqual(opener.performed, [])
+        self.module.actions.key.assert_not_called()
+
+    def test_back_does_not_send_escape_after_session_is_replaced_while_hiding(self):
+        session = self.start(self.menu)
+        native_hide = self.module.actions.labels.hide
+        switched = False
+
+        def replace_during_hide():
+            nonlocal switched
+            if not switched:
+                switched = True
+                native_hide()
+                self.module._stop()
+                self.actions.accessibility_show_application_numbers()
+            else:
+                native_hide()
+
+        with patch.object(
+            self.module.actions.labels, "hide", side_effect=replace_during_hide
+        ):
+            self.actions.accessibility_application_numbers_back()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.module.actions.key.assert_not_called()
+        self.assertIn(ACTIVE_TAG, self.talon.active_tags())
+        self.assertIn(SESSION_TAG, self.talon.active_tags())
+
+    def test_back_at_window_does_not_send_a_key(self):
+        session = self.start()
+        self.actions.accessibility_application_numbers_back()
+        self.assertIs(self.module._session, session)
+        self.module.actions.key.assert_not_called()
+        self.talon.notify.assert_called_once()
+
+    def test_back_waits_and_reports_an_unchanged_menu(self):
+        session = self.start(self.menu)
+        self.actions.accessibility_application_numbers_back()
+        self.actions.accessibility_application_numbers_back()
+        self.module.actions.key.assert_called_once_with("esc")
+
+        for _ in range(15):
+            session._check_menu()
+
+        self.assertIsNone(self.module._session)
+        self.assertIn("unable to return", self.talon.notify.call_args.args[1].lower())
+
+    def test_menu_monitor_is_cancelled_with_session(self):
+        session = self.start()
+        job = session.job
+        self.talon.dispatch_labels("hide")
+        self.assertTrue(session.stopped)
+        self.talon.cron.cancel.assert_any_call(job)
+
+    def test_other_label_session_can_hide_during_back_transition(self):
+        session = self.start(self.menu)
+        self.actions.accessibility_application_numbers_back()
+
+        self.talon.dispatch_labels("hide")
+
+        self.assertTrue(session.stopped)
+        self.assertIsNone(self.module._session)
+
+    def test_escape_and_session_overrides_use_separate_tags(self):
+        active = (ROOT / "accessibility" / "inventory_active.talon").read_text()
+        self.assertIn(f"tag: {ACTIVE_TAG}", active)
+        self.assertIn("key(escape):", active)
+        self.assertIn(f"tag: {SESSION_TAG}", self.module.labels_ctx.matches)
+
+    def test_app_change_stops_session_during_back_transition(self):
+        session = self.start(self.menu)
+        self.actions.accessibility_application_numbers_back()
+        self.talon.active_app = types.SimpleNamespace(pid=2)
+
+        session._check_menu()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNone(self.module._session)
+
+    def test_menu_change_prevents_stale_deferred_append(self):
+        session = self.start()
+        self.talon.active_menu = self.menu
+        with patch.object(self.module, "_deferred_controls") as deferred:
+            session._append_deferred(self.window, [self.button], [])
+        deferred.assert_not_called()
+        self.finish_refresh()
+        self.assertEqual(session.targets, [self.item])
+
+    def test_menu_change_during_query_never_renders_stale_targets(self):
+        session = self.start()
+        self.talon.active_menu = self.menu
+
+        def query(*args, root, **kwargs):
+            if root is self.menu:
+                self.talon.active_menu = None
+            return self.results[id(root)]
+
+        self.query.side_effect = query
+        session._check_menu()
+        self.finish_refresh()
+
+        self.assertNotIn(("show", ([self.item],)), self.talon.native_calls)
+        self.finish_refresh()
+        self.assertEqual(session.targets, [self.button])
+
+    def test_temporarily_empty_menu_is_retried_without_stopping(self):
+        session = self.start()
+        self.talon.active_menu = self.menu
+        self.results[id(self.menu)] = []
+        session._check_menu()
+        self.finish_refresh()
+
+        self.assertIs(self.module._session, session)
+        self.assertEqual(self.talon.cron.after.call_args.args[0], "100ms")
+        self.results[id(self.menu)] = [self.item]
+        self.finish_refresh()
+        self.assertEqual(session.targets, [self.item])
+
+    def test_transition_hide_preserves_an_existing_hide_guard(self):
+        session = self.start()
+        session.preserve_hide = True
+
+        session.hide_for_transition()
+
+        self.assertTrue(session.preserve_hide)
+        self.assertIs(self.module._session, session)
+        session.preserve_hide = False
+
+    def test_menu_monitor_error_stops_and_notifies(self):
+        session = self.start()
+        with patch.object(self.module.ui, "active_menu", side_effect=UIErr("failed")):
+            session._check_menu()
+        self.assertTrue(session.stopped)
+        self.assertIsNone(self.module._session)
+        self.talon.notify.assert_called_once_with(
+            "Application control labels",
+            "Unable to query the focused accessibility window.",
         )
 
 

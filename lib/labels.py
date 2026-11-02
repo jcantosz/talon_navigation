@@ -1,7 +1,140 @@
+from math import isfinite
+
 from talon import actions, cron
+
+MENU_HOVER_DELAY_TICKS = 3
+MENU_BACK_FALLBACK_TICKS = 10
+LABEL_TEXT_LEVELS = 4
+CONTROL_ROLES = {
+    "AXButton",
+    "AXCheckBox",
+    "AXComboBox",
+    "AXDisclosureTriangle",
+    "AXLink",
+    "AXMenuButton",
+    "AXMenuItem",
+    "AXPopUpButton",
+    "AXRadioButton",
+    "AXSearchField",
+    "AXSlider",
+    "AXSwitch",
+    "AXTab",
+    "AXTextArea",
+    "AXTextField",
+}
+
+
+def usable_frame(element):
+    frame = element.get("AXFrame")
+    return (
+        frame is not None
+        and all(
+            isfinite(value) for value in (frame.x, frame.y, frame.width, frame.height)
+        )
+        and frame.width > 0
+        and frame.height > 0
+    )
+
+
+def label_element(element, in_menu=False):
+    """Anchor a row or menu item on contained text when useful."""
+    role = element.get("AXRole")
+    menu_item = in_menu and role == "AXMenuItem"
+    if role != "AXRow" and not menu_item:
+        return element
+    if menu_item and not usable_frame(element):
+        return element
+    bounds = element.get("AXFrame")
+    level = list(element.get("AXChildren") or ())
+    for _ in range(LABEL_TEXT_LEVELS):
+        texts = []
+        for child in level:
+            if (
+                child.get("AXRole") == "AXStaticText"
+                and (not menu_item or child.get("AXHidden") is not True)
+                and usable_frame(child)
+            ):
+                frame = child.get("AXFrame")
+                x = frame.x + frame.width / 2
+                y = frame.y + frame.height / 2
+                if (
+                    bounds.x <= x <= bounds.x + bounds.width
+                    and bounds.y <= y <= bounds.y + bounds.height
+                ):
+                    if not menu_item:
+                        return child
+                    texts.append(child)
+        if texts:
+            return min(texts, key=lambda child: child.get("AXFrame").x)
+        level = [
+            grandchild
+            for child in level
+            if child.get("AXRole") not in CONTROL_ROLES
+            and (not menu_item or child.get("AXRole") != "AXMenu")
+            for grandchild in child.get("AXChildren") or ()
+        ]
+    return element
+
+
+def submenu_hover_point(target, menu):
+    if (
+        target.get("AXRole") != "AXMenuItem"
+        or target.get("AXHasPopup") is not True
+        or target.get("AXEnabled") is False
+        or target.get("AXHidden") is True
+        or "AXPress" not in target.actions
+        or not usable_frame(target)
+        or not usable_frame(menu)
+    ):
+        return None
+
+    frame = target.get("AXFrame")
+    bounds = menu.get("AXFrame")
+    x = frame.x + frame.width / 2
+    y = frame.y + frame.height / 2
+    if not (bounds.x < x < bounds.x + bounds.width) or not (
+        bounds.y < y < bounds.y + bounds.height
+    ):
+        return None
+
+    ancestor = target
+    for _ in range(100):
+        ancestor = ancestor.get("AXParent")
+        if ancestor is None:
+            return None
+        if ancestor == menu:
+            return x, y
+        if ancestor.get("AXRole") in ("AXWindow", "AXApplication"):
+            return None
+    return None
+
+
+def menu_parent(menu):
+    owner = menu.get("AXParent")
+    if owner is None:
+        return None
+    if owner.get("AXRole") in ("AXMenu", "AXMenuBar"):
+        return owner
+    return owner.get("AXParent")
+
+
+def menu_opener(menu):
+    owner = menu.get("AXParent")
+    if (
+        owner is not None
+        and owner.get("AXRole") in ("AXMenuItem", "AXMenuBarItem")
+        and owner.get("AXEnabled") is not False
+        and owner.get("AXHidden") is not True
+        and "AXPress" in owner.actions
+        and any(child == menu for child in owner.get("AXChildren") or ())
+    ):
+        return owner
+    return None
 
 
 class LabelSession:
+    _render_generation = 0
+
     def __init__(self, context, active_tag, names):
         self.context = context
         self.active_tag = active_tag
@@ -14,12 +147,16 @@ class LabelSession:
         if self.stopped:
             return False
         elements = list(elements)
+        LabelSession._render_generation += 1
+        generation = LabelSession._render_generation
         if self.names:
             actions.labels.show_names(elements)
         else:
             actions.labels.show(elements)
         if self.stopped:
-            actions.labels.hide()
+            # A replacement session may have rendered while this one was stopping.
+            if generation == LabelSession._render_generation:
+                actions.labels.hide()
             return False
         self.context.tags = [self.active_tag]
         return True
@@ -28,11 +165,12 @@ class LabelSession:
         self.job = cron.interval(interval, callback)
 
     def hide_for_transition(self):
+        previous = self.preserve_hide
         self.preserve_hide = True
         try:
             actions.labels.hide()
         finally:
-            self.preserve_hide = False
+            self.preserve_hide = previous
 
     def stop(self):
         if self.stopped:

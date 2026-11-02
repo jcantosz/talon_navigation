@@ -20,9 +20,16 @@ class Element:
     def __init__(self, role, title="", children=(), enabled=True):
         self.attrs = {"AXRole": role, "AXTitle": title, "AXEnabled": enabled}
         self.children = list(children)
+        self.actions = ["AXPress"]
+        self.performed = []
 
     def get(self, key):
+        if key == "AXChildren":
+            return self.children
         return self.attrs.get(key)
+
+    def perform(self, action):
+        self.performed.append(action)
 
 
 class Children(list):
@@ -69,13 +76,19 @@ class MenuLabelsTests(unittest.TestCase):
         self.file = Element("AXMenuBarItem", "File")
         self.edit = Element("AXMenuBarItem", "Edit")
         self.bar = Element("AXMenuBar", children=[self.file, self.edit])
-        self.application = types.SimpleNamespace(pid=1, children=Children([self.bar]))
+        self.window = Element("AXWindow")
+        self.application_element = Element("AXApplication")
+        self.application_element.attrs["AXFocusedWindow"] = self.window
+        self.application = types.SimpleNamespace(
+            pid=1, children=Children([self.bar]), element=self.application_element
+        )
         self.menu = None
         self.visible = []
         self.style = None
         self.dispatch_stack = []
         self.selected = []
         self.notify = Mock()
+        self.mouse_pos = Mock(return_value=(30, 40))
         self.cron = types.SimpleNamespace(
             interval=Mock(return_value=object()), cancel=Mock()
         )
@@ -98,6 +111,7 @@ class MenuLabelsTests(unittest.TestCase):
             actions=types.SimpleNamespace(labels=self.labels, next=self.next_action),
             app=types.SimpleNamespace(notify=self.notify),
             cron=self.cron,
+            ctrl=types.SimpleNamespace(mouse_pos=self.mouse_pos),
             ui=self.ui,
         )
         root_package = types.ModuleType("talon_navigation_under_test")
@@ -120,6 +134,7 @@ class MenuLabelsTests(unittest.TestCase):
             spec.loader.exec_module(self.module)
         self.actions = self.module.MenuLabelsActions
         self.module.actions.key = Mock()
+        self.module.actions.mouse_move = Mock()
 
     def prepare_back(self, parent):
         self.menu = self.submenu()
@@ -155,6 +170,162 @@ class MenuLabelsTests(unittest.TestCase):
         self.assertEqual(self.visible, self.bar.children)
         self.assertEqual(self.style, "numbers")
         self.assertIs(self.module._session.container, self.bar)
+
+    def test_back_recognizes_direct_menu_and_menu_bar_parents(self):
+        for parent in (self.submenu("Parent item"), self.bar):
+            with self.subTest(role=parent.get("AXRole")):
+                self.labels.hide()
+                self.menu = self.submenu()
+                self.menu.attrs["AXParent"] = parent
+                self.actions.menu_labels_show(False)
+
+                self.actions.menu_labels_back()
+
+                is_bar = parent.get("AXRole") == "AXMenuBar"
+                self.module.actions.key.assert_called_with("esc" if is_bar else "left")
+                self.menu = None if is_bar else parent
+                self.module._session.update()
+                self.assertEqual(self.visible, parent.children)
+                self.assertIs(self.module._session.container, parent)
+
+    def test_back_falls_back_to_menu_bar_when_parent_does_not_respond(self):
+        parent = self.submenu("Parent")
+        self.menu = self.submenu()
+        self.menu.attrs["AXParent"] = parent
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+
+        self.actions.menu_labels_back()
+        for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+            session.update()
+
+        self.assertEqual(
+            [call.args for call in self.module.actions.key.call_args_list],
+            [("left",), ("esc",)],
+        )
+        self.menu = None
+        session.update()
+        self.assertIs(session.container, self.bar)
+        self.assertEqual(self.visible, self.bar.children)
+        self.assertEqual(self.style, "numbers")
+        self.assertIn("menu bar", self.notify.call_args.args[1])
+
+    def test_back_fallback_does_not_escape_after_window_changes(self):
+        parent = self.submenu("Parent")
+        self.prepare_back(parent)
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.actions.menu_labels_back()
+        self.application_element.attrs["AXFocusedWindow"] = Element("AXWindow")
+
+        for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+            session.update()
+
+        self.module.actions.key.assert_called_once_with("left")
+        self.assertTrue(session.stopped)
+        self.assertIn("window changed", self.notify.call_args.args[1].lower())
+
+    def test_back_fallback_does_not_escape_after_menu_changes(self):
+        parent = self.submenu("Parent")
+        self.prepare_back(parent)
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.actions.menu_labels_back()
+        self.menu = self.submenu("Unrelated")
+
+        for _ in range(self.module.MENU_BACK_FALLBACK_TICKS):
+            session.update()
+
+        self.module.actions.key.assert_called_once_with("left")
+
+    def test_back_rejects_stale_labels_after_menu_changes(self):
+        parent = self.submenu("Parent")
+        self.prepare_back(parent)
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.menu = self.submenu("Another menu")
+
+        self.actions.menu_labels_back()
+
+        self.assertTrue(session.stopped)
+        self.module.actions.key.assert_not_called()
+        self.assertIn("menu changed", self.notify.call_args.args[1].lower())
+
+    def test_replaced_session_cannot_press_a_parent_opener(self):
+        parent = self.submenu("Parent")
+        self.prepare_back(parent)
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        opener = Element("AXMenuBarItem", "File")
+
+        def replace_session(*args):
+            self.actions.menu_labels_show(False)
+            return opener
+
+        with patch.object(self.module, "menu_opener", side_effect=replace_session):
+            self.actions.menu_labels_back()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.assertEqual(opener.performed, [])
+        self.module.actions.key.assert_not_called()
+
+    def test_back_does_not_press_an_opener_after_the_menu_changes(self):
+        parent = self.submenu("Parent")
+        self.prepare_back(parent)
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        opener = Element("AXMenuBarItem", "File")
+
+        def change_menu(*args):
+            self.menu = self.submenu("Another menu")
+            return opener
+
+        with patch.object(self.module, "menu_opener", side_effect=change_menu):
+            self.actions.menu_labels_back()
+
+        self.assertTrue(session.stopped)
+        self.assertEqual(opener.performed, [])
+        self.module.actions.key.assert_not_called()
+        self.assertIn("menu changed", self.notify.call_args.args[1].lower())
+
+    def test_submenu_back_uses_verified_parent_menu_opener(self):
+        parent = self.submenu("Parent item")
+        opener = Element("AXMenuBarItem", "File", children=[parent])
+        opener.actions = ["AXPress"]
+        opener.perform = Mock()
+        parent.attrs["AXParent"] = opener
+        self.prepare_back(parent)
+        self.actions.menu_labels_show(False)
+
+        self.actions.menu_labels_back()
+
+        opener.perform.assert_called_once_with("AXPress")
+        self.module.actions.key.assert_not_called()
+        self.menu = parent
+        self.module._session.update()
+        self.assertEqual(self.visible, parent.children)
+
+    def test_menu_opener_rejects_unsafe_or_unrelated_owners(self):
+        cases = (
+            ("disabled", "AXMenuItem", False, False, ["AXPress"], True),
+            ("hidden", "AXMenuItem", True, True, ["AXPress"], True),
+            ("wrong role", "AXButton", True, False, ["AXPress"], True),
+            ("not pressable", "AXMenuItem", True, False, [], True),
+            ("not its child", "AXMenuItem", True, False, ["AXPress"], False),
+        )
+        for name, role, enabled, hidden, actions, has_child in cases:
+            with self.subTest(name=name):
+                menu = self.submenu()
+                owner = Element(
+                    role, children=[menu] if has_child else [], enabled=enabled
+                )
+                owner.attrs["AXHidden"] = hidden
+                owner.actions = actions
+                menu.attrs["AXParent"] = owner
+
+                self.assertIsNone(self.module.menu_opener(menu))
+        self.assertIsNone(self.module.menu_opener(self.submenu()))
 
     def test_back_at_bar_does_not_send_escape(self):
         self.actions.menu_labels_show()
@@ -218,6 +389,125 @@ class MenuLabelsTests(unittest.TestCase):
 
     def submenu(self, title="Open Recent"):
         return Element("AXMenu", children=[Element("AXMenuItem", title)])
+
+    def hoverable_menu(self):
+        target = Element("AXMenuItem", "Tools")
+        menu = Element("AXMenu", children=[target])
+        menu.attrs["AXFrame"] = types.SimpleNamespace(x=0, y=0, width=300, height=300)
+        target.attrs.update(
+            AXParent=menu,
+            AXHasPopup=True,
+            AXFrame=types.SimpleNamespace(x=10, y=20, width=80, height=30),
+        )
+        self.menu = menu
+        return menu, target
+
+    def test_numbered_submenu_hovers_only_if_native_selection_stalls(self):
+        self.hoverable_menu()
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+
+        self.labels.select(1)
+
+        self.assertEqual(self.selected, [1])
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS - 1):
+            session.update()
+        self.module.actions.mouse_move.assert_not_called()
+        session.update()
+        self.module.actions.mouse_move.assert_called_once_with(50, 35)
+        self.assertTrue(session.waiting)
+
+        self.menu = self.submenu("Submenu item")
+        session.update()
+        self.assertIs(session.container, self.menu)
+        self.assertEqual(self.visible, self.menu.children)
+
+    def test_numbered_submenu_does_not_hover_if_native_selection_succeeds(self):
+        self.hoverable_menu()
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.labels.select(1)
+
+        self.menu = self.submenu("Submenu item")
+        session.update()
+
+        self.module.actions.mouse_move.assert_not_called()
+        self.assertIs(session.container, self.menu)
+
+    def test_named_submenu_hovers_when_its_title_uniquely_identifies_it(self):
+        self.hoverable_menu()
+        self.actions.menu_labels_show()
+        session = self.module._session
+        self.labels.select("Tools")
+
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+            session.update()
+
+        self.assertEqual(self.selected, ["Tools"])
+        self.module.actions.mouse_move.assert_called_once_with(50, 35)
+
+    def test_named_submenu_does_not_guess_between_duplicate_titles(self):
+        menu, _ = self.hoverable_menu()
+        menu.children.append(Element("AXMenuItem", "Tools"))
+        self.actions.menu_labels_show()
+        session = self.module._session
+        self.labels.select("Tools")
+
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+            session.update()
+
+        self.assertEqual(self.selected, ["Tools"])
+        self.module.actions.mouse_move.assert_not_called()
+
+    def test_menu_number_hover_rejects_stale_or_unsafe_targets(self):
+        for case in ("mouse_moved", "window_changed", "hidden", "outside"):
+            with self.subTest(case=case):
+                self.labels.hide()
+                self.mouse_pos.return_value = (30, 40)
+                self.application_element.attrs["AXFocusedWindow"] = self.window
+                self.module.actions.mouse_move.reset_mock()
+                _, target = self.hoverable_menu()
+                self.actions.menu_labels_show(False)
+                session = self.module._session
+                self.labels.select(1)
+                if case == "mouse_moved":
+                    self.mouse_pos.return_value = (31, 40)
+                elif case == "window_changed":
+                    self.application_element.attrs["AXFocusedWindow"] = Element(
+                        "AXWindow"
+                    )
+                elif case == "hidden":
+                    target.attrs["AXHidden"] = True
+                else:
+                    target.attrs["AXFrame"] = types.SimpleNamespace(
+                        x=400, y=20, width=80, height=30
+                    )
+
+                for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+                    session.update()
+
+                self.module.actions.mouse_move.assert_not_called()
+
+    def test_menu_number_hover_does_not_move_after_session_replacement(self):
+        self.hoverable_menu()
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.labels.select(1)
+
+        def replace_session(*args):
+            self.labels.hide()
+            self.actions.menu_labels_show(False)
+            return (50, 35)
+
+        with patch.object(
+            self.module, "submenu_hover_point", side_effect=replace_session
+        ):
+            for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+                session.update()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.module.actions.mouse_move.assert_not_called()
 
     def test_global_start_uses_application_menu_bar(self):
         self.actions.menu_labels_show()
@@ -299,6 +589,101 @@ class MenuLabelsTests(unittest.TestCase):
         self.actions.menu_labels_show(False)
         self.assertIs(self.module._session.container, self.menu)
 
+    def test_numbered_menu_anchors_text_and_presses_its_logical_item(self):
+        _, target = self.hoverable_menu()
+        text = Element("AXStaticText", "Tools")
+        text.attrs["AXFrame"] = types.SimpleNamespace(x=25, y=20, width=50, height=20)
+        target.children = [text]
+
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+
+        self.assertEqual(self.visible, [text])
+        self.assertEqual(session.targets, [target])
+        self.labels.select(1)
+        self.assertEqual(target.performed, ["AXPress"])
+        self.assertEqual(self.selected, [])
+        for _ in range(self.module.MENU_HOVER_DELAY_TICKS):
+            session.update()
+        self.module.actions.mouse_move.assert_called_once_with(50, 35)
+
+    def test_named_menu_keeps_its_original_label_and_native_selection(self):
+        _, target = self.hoverable_menu()
+        text = Element("AXStaticText", "Tools")
+        text.attrs["AXFrame"] = types.SimpleNamespace(x=25, y=20, width=50, height=20)
+        target.children = [text]
+
+        self.actions.menu_labels_show()
+
+        self.assertEqual(self.visible, [target])
+        self.labels.select("Tools")
+        self.assertEqual(self.selected, ["Tools"])
+        self.assertEqual(target.performed, [])
+
+    def test_select_rejects_menu_labels_after_the_menu_changes(self):
+        self.menu = self.submenu()
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.menu = self.submenu("Another menu")
+
+        self.labels.select(1)
+
+        self.assertEqual(self.selected, [])
+        self.assertTrue(session.stopped)
+        self.assertIn("menu changed", self.notify.call_args.args[1].lower())
+
+    def test_select_waits_for_the_previous_menu_transition(self):
+        self.actions.menu_labels_show(False)
+        self.labels.select(1)
+
+        self.labels.select(2)
+
+        self.assertEqual(self.selected, [1])
+        self.assertIn("wait", self.notify.call_args.args[1].lower())
+
+    def test_anchored_item_is_not_pressed_if_menu_changes_during_selection(self):
+        _, target = self.hoverable_menu()
+        text = Element("AXStaticText", "Tools")
+        text.attrs["AXFrame"] = types.SimpleNamespace(x=25, y=20, width=50, height=20)
+        target.children = [text]
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        current = self.menu
+        changed = self.submenu("Another menu")
+
+        with patch.object(self.ui, "active_menu", side_effect=[current, changed]):
+            self.labels.select(1)
+
+        self.assertEqual(target.performed, [])
+        self.assertTrue(session.stopped)
+        self.assertIn("menu changed", self.notify.call_args.args[1].lower())
+
+    def test_replaced_session_cannot_press_an_old_anchored_item(self):
+        _, target = self.hoverable_menu()
+        text = Element("AXStaticText", "Tools")
+        text.attrs["AXFrame"] = types.SimpleNamespace(x=25, y=20, width=50, height=20)
+        target.children = [text]
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        original = self.menu
+        calls = 0
+
+        def replace_during_recheck():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.actions.menu_labels_show(False)
+            return original
+
+        with patch.object(self.ui, "active_menu", side_effect=replace_during_recheck):
+            self.labels.select(1)
+
+        self.assertTrue(session.stopped)
+        self.assertIsNot(self.module._session, session)
+        self.assertEqual(target.performed, [])
+        self.assertEqual(self.visible, [text])
+        self.notify.assert_not_called()
+
     def test_excludes_separators_disabled_and_non_menu_elements(self):
         good = Element("AXMenuItem", "Open")
         menu = Element(
@@ -322,6 +707,27 @@ class MenuLabelsTests(unittest.TestCase):
         self.assertEqual(self.module.ctx.tags, [])
         self.assertIsNone(session.job)
         self.cron.cancel.assert_called_with(job)
+
+    def test_stopped_render_preserves_replacement_menu_labels(self):
+        self.actions.menu_labels_show(False)
+        previous = self.module._session
+        native_show = self.labels.show
+        switched = False
+
+        def show_then_replace(targets):
+            nonlocal switched
+            native_show(targets)
+            if not switched:
+                switched = True
+                self.actions.menu_labels_show(False)
+
+        with patch.object(self.labels, "show", side_effect=show_then_replace):
+            previous.show_container(self.bar, self.bar.children)
+
+        self.assertTrue(previous.stopped)
+        self.assertIsNotNone(self.module._session)
+        self.assertIsNot(self.module._session, previous)
+        self.assertEqual(self.visible, self.bar.children)
 
     def test_leaf_selection_exits_without_relabeling_old_menu(self):
         self.menu = self.submenu("Leaf")

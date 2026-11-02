@@ -4,7 +4,7 @@ from math import isfinite
 
 from talon import Context, Module, actions, app, ui
 
-from ..lib.labels import LabelSession
+from ..lib.labels import LabelSession, menu_opener, menu_parent
 from .discovery import discover
 
 mod = Module()
@@ -604,8 +604,7 @@ class StatusSession(LabelSession):
             app.notify("Status labels", "Already at the status icons.")
             return
         root = self.surface.root
-        owner = root.get("AXParent")
-        parent = owner.get("AXParent") if owner is not None else None
+        parent = menu_parent(root)
         nested_menu = (
             root.get("AXRole") == "AXMenu"
             and parent is not None
@@ -653,7 +652,11 @@ class StatusSession(LabelSession):
             if back is not None:
                 back.element.perform("AXPress")
             elif nested_menu:
-                actions.key("left")
+                opener = menu_opener(parent)
+                if opener is not None and opener != self.opener:
+                    opener.perform("AXPress")
+                else:
+                    actions.key("left")
             elif "AXCancel" in root.actions:
                 root.perform("AXCancel")
             elif close is not None:

@@ -1414,14 +1414,16 @@ Fix (`_label_element`):
   centre lies inside the row. The search goes up to `ROW_TEXT_LEVELS` (4)
   levels deep and doesn't descend into nested `CONTROL_ROLES`, which carry
   their own labels.
-- Selecting a substituted label presses the row with `AXPress`. Every other
-  label still uses Talon's native selection.
+- At this stage, selecting a substituted label pressed the row with `AXPress`.
+  The later row-activation policy can instead press a uniquely qualifying
+  child group; see [the accessibility README](../accessibility/README.md).
+  Other labels normally use Talon's native selection.
 - Nested Explorer groups in VS Code keep their own frame, because text
   substitution there drew badges over file names.
 - Tests (each written first and failing):
   - a row's label is drawn on its text
   - a row without inner text keeps its own label
-  - a text-labelled row is pressed
+  - a text-labelled row without a qualifying child is pressed
   - buttons keep native selection
   - nested row groups keep their own label
   - text four levels deep is found
