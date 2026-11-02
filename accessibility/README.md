@@ -8,6 +8,40 @@ voice; an unchanged menu state does not trigger a window-tree query. Custom
 popovers that macOS does not expose as an active accessibility menu are not
 covered by this detection.
 
+## Implementation layout
+
+| Module | Responsibility |
+|---|---|
+| [inventory.py](inventory.py) | Talon actions, settings, tags, event registrations, and ownership of the current session and activation overrides |
+| [controls.py](controls.py) | AX queries, control and row filtering, clipping, deferred web areas, and focused surfaces used by diagnostics |
+| [activation.py](activation.py) | AX interface activation, bundle exclusions, and process identity checks |
+| [application_session.py](application_session.py) | Rendering, refresh scheduling, safe selection, menu transitions, and Back |
+| [inventory_core.py](inventory_core.py), [debug_snapshots.py](debug_snapshots.py), [snapshots.py](snapshots.py) | Diagnostic tree traversal, printing, and snapshot output, not the numbered-control query path |
+
+The three extracted implementation modules do not register Talon commands or
+contexts. The entry point supplies the session's contexts and stop callback, so
+the session does not import the entry point. Each session retains its own
+contexts for reload cleanup.
+The menu transition state machine stays together rather than being spread over
+mixins or mutually dependent modules. Voice commands, settings, query budgets,
+control ordering, and per-application overrides are unchanged.
+
+Runtime tests follow the same boundaries: `test_application_collection`,
+`test_application_rows`, `test_application_web_areas`,
+`test_application_activation`, `test_application_session`, and separate menu
+scope, selection, and Back modules. Shared Talon doubles live in
+[accessibility_support.py](../tests/accessibility_support.py); highlighting and
+diagnostic runtime tests are independent. Run the application tests with:
+
+```sh
+uv run python -m unittest discover -s tests -p 'test_application_*.py'
+```
+
+The experimental word highlighter and diagnostic commands still have active
+Talon bindings; their names or lack of Python callers do not make them dead code.
+The highlighter's promote/retain/remove decision remains in the
+[highlighting backlog](../backlog/highlighting.md#h2-test-session-lifecycle-and-decide-promotion).
+
 ## Menu navigation constraints
 
 In application numbers and menu numbers, an item's number can be anchored

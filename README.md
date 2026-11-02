@@ -280,6 +280,8 @@ Application, menu, and status navigation share label rendering, active-context,
 polling, cancellation, and menu-ancestry helpers through
 [`lib/labels.py`](lib/labels.py). Feature modules retain their own
 navigation-specific state and accessibility traversal.
+Application-numbering module responsibilities and focused test groups are
+described in the [accessibility implementation layout](accessibility/README.md#implementation-layout).
 
 The checker runs Ruff's Python syntax/lint checks, Python formatting checks, the
 Tree-sitter Talon parser and Cursorless formatter, then all unit tests. It checks
@@ -335,13 +337,19 @@ Development commands using `uv` select Python 3.12 via `.python-version`,
 independently of macOS's system Python and Talon's bundled interpreter:
 
 ```sh
-uv run python -m unittest tests.test_accessibility_runtime tests.test_accessibility_inventory
+uv run python -m unittest discover -s tests -v
 ```
 
 Or, with an existing Python 3.10+ virtual environment:
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
+```
+
+For just the application-numbering tests:
+
+```sh
+uv run python -m unittest discover -s tests -p 'test_application_*.py'
 ```
 
 Tests use Python's standard library and mocked Talon APIs, so Talon does not need

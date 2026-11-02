@@ -364,12 +364,18 @@ Use the smallest relevant checks:
 ```bash
 uv run ruff check \
   accessibility/inventory.py \
+  accessibility/activation.py \
+  accessibility/controls.py \
+  accessibility/application_session.py \
   accessibility/text_highlight_spike.py \
   accessibility/text_highlight_spike_core.py \
   tests/test_text_highlight_spike.py
 
 uv run ruff format --check \
   accessibility/inventory.py \
+  accessibility/activation.py \
+  accessibility/controls.py \
+  accessibility/application_session.py \
   accessibility/text_highlight_spike.py \
   accessibility/text_highlight_spike_core.py \
   tests/test_text_highlight_spike.py
@@ -381,8 +387,11 @@ node scripts/lint_talon.mjs \
   accessibility/text_highlight_spike.talon \
   accessibility/text_highlight_spike_active.talon
 
+uv run python -m unittest discover -s tests -p 'test_application_*.py'
+
 uv run python -m unittest \
-  tests.test_accessibility_runtime \
+  tests.test_highlight_runtime \
+  tests.test_accessibility_debug_runtime \
   tests.test_text_highlight_spike \
   tests.test_accessibility_inventory \
   tests.test_accessibility_snapshots \

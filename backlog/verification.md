@@ -11,7 +11,9 @@ Record results in the spike's section; don't create a separate notes file.
 ## Coverage checkpoint (2026-10-29)
 
 Automated checks live in
-[test_accessibility_runtime.py](../tests/test_accessibility_runtime.py),
+[test_application_session.py](../tests/test_application_session.py),
+[test_highlight_runtime.py](../tests/test_highlight_runtime.py),
+[test_accessibility_debug_runtime.py](../tests/test_accessibility_debug_runtime.py),
 [test_accessibility_snapshots.py](../tests/test_accessibility_snapshots.py),
 and [test_menu_labels.py](../tests/test_menu_labels.py).
 
@@ -79,7 +81,7 @@ numbers` again, then switch to menu labels (`show menu numbers`).
 `talon debug tags` to inspect active tags; a declared-tag registry alone does
 not prove activation), and the Talon log has no
 exceptions. If the grammar does not activate, the mocked tag-resolution model
-in [test_accessibility_runtime.py](../tests/test_accessibility_runtime.py) is
+in [accessibility_support.py](../tests/accessibility_support.py) is
 wrong and must be corrected first.
 
 **Observed by direct action:** `accessibility_show_application_numbers`

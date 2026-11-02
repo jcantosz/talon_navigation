@@ -3,7 +3,7 @@ from pathlib import Path
 
 from talon import Module, app, ui
 
-from .inventory import focused_surfaces
+from .controls import focused_surfaces
 from .inventory_core import collect, format_node
 from .snapshots import write_snapshots
 

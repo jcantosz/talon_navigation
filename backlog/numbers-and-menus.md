@@ -266,7 +266,8 @@ Use [menu navigation](../menus/menu_labels.py) and the existing shared
 **Done when:** ownership of tags/labels and cleanup are tested, command overlap
 is documented, and no stale number can activate an old control after a surface
 change. Mocked coverage for tag ownership, reload, and stale-window rejection exists in
-[test_accessibility_runtime.py](../tests/test_accessibility_runtime.py); see the
+[test_application_session.py](../tests/test_application_session.py) and the
+[application menu tests](../tests/test_application_menu_scope.py); see the
 [audit](accessibility-audit.md) for what still needs live checks.
 
 ## N8. Compare one grouped-number scope with the full-window result

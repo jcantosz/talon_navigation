@@ -13,7 +13,8 @@ The audit found six gaps (A1-A6) between the code and the
 the reported paths, with the remaining A4 limitations described below.
 Coverage is in
 regression tests in
-[test_accessibility_runtime.py](../tests/test_accessibility_runtime.py) and
+[application session tests](../tests/test_application_session.py),
+[highlight runtime tests](../tests/test_highlight_runtime.py), and
 [test_accessibility_snapshots.py](../tests/test_accessibility_snapshots.py).
 All seven original application-label regression tests failed against the pre-fix `HEAD` version
 of [inventory.py](../accessibility/inventory.py) and pass now.
@@ -123,11 +124,12 @@ attribute list; keep all trees local and ignored by Git.
 
 ### A6. Runtime-module tests — added
 
-[test_accessibility_runtime.py](../tests/test_accessibility_runtime.py) loads
+[Application runtime tests](../tests/test_application_session.py) and
+[highlight runtime tests](../tests/test_highlight_runtime.py) load
 the real [inventory.py](../accessibility/inventory.py) and
 [text_highlight_spike.py](../accessibility/text_highlight_spike.py) against a
-small Talon double (in the style of
-[test_menu_labels.py](../tests/test_menu_labels.py)) and covers A1-A4. Mocked
+shared [Talon double](../tests/accessibility_support.py) (in the style of
+[test_menu_labels.py](../tests/test_menu_labels.py)) and cover A1-A4. Mocked
 tests do not replace the live voice matrix.
 
 ## Preliminary feasibility notes for the new tracks
@@ -159,13 +161,13 @@ All commands used the existing local environment; no dependencies were installed
 
 - `uv run ruff check accessibility tests lib` and `ruff format`: passed.
 - `node scripts/lint_talon.mjs accessibility/*.talon`: passed (no Talon edits).
-- `uv run python -m unittest tests.test_accessibility_runtime
-  tests.test_accessibility_snapshots tests.test_accessibility_inventory
-  tests.test_text_highlight_spike tests.test_menu_labels
-  tests.test_ax_tree_report`: **70 tests passed** on the latest run.
+- The then-current runtime, snapshot, inventory, text-highlighting, menu, and
+  AX-report suites: **70 tests passed** on the latest audit run.
   This includes 15 added checks for native-hide simulation/refresh, lifecycle
   and selection failures, debug notification/logging boundaries, and capture
   consistency. See the [coverage checkpoint](verification.md#coverage-checkpoint-2026-10-29).
+  The former monolithic runtime tests have since been split; use the
+  [current test commands](../README.md#tests-only).
 - Regression proof: with `HEAD`'s `inventory.py` temporarily restored, all 7
   application-label runtime tests failed (5 failures, 2 errors).
 

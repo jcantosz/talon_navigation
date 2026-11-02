@@ -39,7 +39,7 @@ identify the cause in the Talon log. No app-name branches.
 
 **Depends on:** H1 and the highlighting findings in the [audit](accessibility-audit.md).
 
-[Runtime tests](../tests/test_accessibility_runtime.py) now cover start,
+[Runtime tests](../tests/test_highlight_runtime.py) now cover start,
 window/offset/element staleness, homophone failure, and reload. Extend them to
 navigation, invalid numbers, selection-write failure, and closing while
 preserving the selected word. Include shared-buffer offsets and Unicode
