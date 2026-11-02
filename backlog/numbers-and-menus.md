@@ -1205,8 +1205,8 @@ state-preservation certification.
 ### N12d. Compare both visibility filters across applications
 
 **Status:** native, browser and Electron (Slack current view) spikes done.
-**Decision so far:** keep Talon's pruning as the global default and keep
-surface clipping enabled only for VS Code. **Effort:** S per application.
+**Decision so far:** keep Talon's pruning as the global default and enable
+surface clipping per app (VS Code, Slack; see the 2026-11-02 follow-up). **Effort:** S per application.
 The filter implementation is generic; only its enablement is app-specific.
 
 **Goal:** determine empirically whether surface clipping can replace Talon's
@@ -1333,6 +1333,7 @@ Evidence: session `files/n10/xapp_<state>.json` and `.png`
   visible controls, faster). It is a candidate for per-app enablement in a
   Slack `.talon` file, pending a scrolled-state check and numbered activation.
 - [x] Compare results and choose: per-app policy; global default unchanged.
+- [x] Enable clip for Slack (`accessibility/inventory_slack.talon`).
 - [ ] Follow-up spike: clip to the nearest scroll area instead of the window.
 
 ### N12e. Preserve the Settings view while showing numbers
