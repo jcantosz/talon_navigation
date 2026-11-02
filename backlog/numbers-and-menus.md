@@ -260,7 +260,8 @@ or silently select a different node. Generalizing to more apps is a new spike.
 
 Check expanded controls, native menus, back/hide, switching between application
 and menu labels, and command precedence against generic `show numbers`.
-Use [menu navigation](../menus/menu_labels.py) and the existing shared
+Use [menu navigation](../menus/menu_labels.py), its
+[session](../menus/menu_session.py), and the existing shared
 [label wrapper](../lib/labels.py) before creating another session abstraction.
 
 **Done when:** ownership of tags/labels and cleanup are tested, command overlap

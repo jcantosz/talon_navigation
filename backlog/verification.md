@@ -218,8 +218,9 @@ from query counts, valid geometry, or a direct AX action alone.
 
 ### U1. Menu labels and the shared label wrapper
 
-**Effort:** S. Audit [menu_labels.py](../menus/menu_labels.py) and
-[labels.py](../lib/labels.py) against the principles. In particular:
+**Effort:** S. Audit [menu_labels.py](../menus/menu_labels.py),
+[menu_session.py](../menus/menu_session.py), and [labels.py](../lib/labels.py)
+against the principles. In particular:
 
 - `LabelSession.start_updates` uses a 100 ms `cron.interval` while waiting for
   menus. Confirm it is always bounded and cancelled (principle 7: no unbounded

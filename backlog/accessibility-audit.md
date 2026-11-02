@@ -2,9 +2,10 @@
 
 **Date:** 2026-10-29. **Scope:** all six Python and six Talon source files in
 [accessibility](../accessibility/), their focused tests, the shared
-[label wrapper](../lib/labels.py), and the adjacent
-[menu implementation](../menus/menu_labels.py). This is a source/behavior audit with
-fixes, not a security review or a live application certification.
+[label wrapper](../lib/labels.py), and the adjacent menu implementation
+([entry point](../menus/menu_labels.py) and [session](../menus/menu_session.py)).
+This is a source/behavior audit with fixes, not a security review or a live
+application certification.
 
 ## Conclusion
 
