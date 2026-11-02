@@ -15,7 +15,12 @@ Automated checks live in
 [test_highlight_runtime.py](../tests/test_highlight_runtime.py),
 [test_accessibility_debug_runtime.py](../tests/test_accessibility_debug_runtime.py),
 [test_accessibility_snapshots.py](../tests/test_accessibility_snapshots.py),
-and [test_menu_labels.py](../tests/test_menu_labels.py).
+and the menu test suites:
+[test_menu_back.py](../tests/test_menu_back.py),
+[test_menu_hover.py](../tests/test_menu_hover.py),
+[test_menu_navigation.py](../tests/test_menu_navigation.py),
+[test_menu_session.py](../tests/test_menu_session.py), and
+[test_menu_wiring.py](../tests/test_menu_wiring.py).
 
 | Spike | Automated evidence | Still needs live/provider evidence |
 |---|---|---|
@@ -222,7 +227,11 @@ from query counts, valid geometry, or a direct AX action alone.
 - Check reload cleanup ordering (the A2 defect pattern).
 
 **Done when:** findings are fixed with tests in
-[test_menu_labels.py](../tests/test_menu_labels.py) or recorded as accepted.
+[test_menu_back.py](../tests/test_menu_back.py),
+[test_menu_hover.py](../tests/test_menu_hover.py),
+[test_menu_navigation.py](../tests/test_menu_navigation.py),
+[test_menu_session.py](../tests/test_menu_session.py), or
+[test_menu_wiring.py](../tests/test_menu_wiring.py), or recorded as accepted.
 
 ### U2. Status-bar discovery and labels
 

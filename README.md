@@ -158,6 +158,17 @@ generic default command without modifying the default package.
 `Go back` is also an alias while menu labels are active, but overlaps with browser
 navigation commands; `menu back` is less ambiguous.
 
+### Menu implementation layout
+
+| Module | Responsibility |
+| --- | --- |
+| [menu_labels.py](menus/menu_labels.py) | Talon actions, contexts, and session ownership |
+| [menu_session.py](menus/menu_session.py) | Menu target discovery and navigation state machine |
+
+The session receives its Talon context and failure callback from the entry
+point. Menu tests are grouped by Back, hover, navigation, lifecycle, and wiring,
+with shared Talon doubles in [menu_support.py](tests/menu_support.py).
+
 ## Status icons and panels
 
 - **Show status labels**: label the accessible top-right menu-bar icons by name.

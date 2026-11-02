@@ -129,8 +129,13 @@ attribute list; keep all trees local and ignored by Git.
 the real [inventory.py](../accessibility/inventory.py) and
 [text_highlight_spike.py](../accessibility/text_highlight_spike.py) against a
 shared [Talon double](../tests/accessibility_support.py) (in the style of
-[test_menu_labels.py](../tests/test_menu_labels.py)) and cover A1-A4. Mocked
-tests do not replace the live voice matrix.
+[menu_support.py](../tests/menu_support.py)) and cover A1-A4. Menu behavior
+tests are split across [test_menu_back.py](../tests/test_menu_back.py),
+[test_menu_hover.py](../tests/test_menu_hover.py),
+[test_menu_navigation.py](../tests/test_menu_navigation.py), and
+[test_menu_session.py](../tests/test_menu_session.py), with registration coverage
+in [test_menu_wiring.py](../tests/test_menu_wiring.py). Mocked tests do not
+replace the live voice matrix.
 
 ## Preliminary feasibility notes for the new tracks
 
