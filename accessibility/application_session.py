@@ -1,6 +1,7 @@
 """Application label rendering, refreshes, selection, and menu transitions."""
 
 import logging
+import time
 
 from talon import actions, app, cron, ctrl, settings, ui
 
@@ -24,6 +25,10 @@ EXPANDING_ROLES = {
     "AXTab",
 }
 MENU_POLL_INTERVAL = "100ms"
+SETTLE_INTERVAL = "250ms"
+SETTLE_SCANS = 8
+SETTLE_STABLE_SCANS = 2
+START_RETRY_SECONDS = 2.0
 
 
 def _may_expand(element):
@@ -62,11 +67,55 @@ class ApplicationLabelSession(LabelSession):
         self.menu_back_fallback = False
         self.empty_menu = None
         self.empty_menu_attempts = 0
+        self.settle_job = None
+        self.settle_remaining = 0
+        self.settle_changed = False
+        self.settle_stable = 0
+        self.start_deadline = 0.0
+        self.start_retry_job = None
 
-    def start(self):
+    def start(self, settle=False):
+        self.start_deadline = time.monotonic() + START_RETRY_SECONDS
+        if settle:
+            self.settle_remaining = SETTLE_SCANS
         self.refresh(force=True)
         if not self.stopped:
             self.start_updates(self._check_menu, MENU_POLL_INTERVAL)
+        if settle and not self.stopped and self.start_retry_job is None:
+            self.settle_job = cron.after(SETTLE_INTERVAL, self._settle)
+
+    def _retry_start(self):
+        """Repeat a failed first scan while the application finishes responding."""
+        self.start_retry_job = None
+        if self.stopped:
+            return
+        self.refresh(force=True)
+        if (
+            not self.stopped
+            and self.start_retry_job is None
+            and self.settle_remaining > 0
+            and self.settle_job is None
+        ):
+            self.settle_job = cron.after(SETTLE_INTERVAL, self._settle)
+
+    def _settle(self):
+        """Re-scan while a just-enabled AX tree is still being built."""
+        self.settle_job = None
+        if self.stopped:
+            return
+        previous = self.signature
+        self.refresh()
+        if self.stopped:
+            return
+        self.settle_remaining -= 1
+        if self.signature != previous:
+            self.settle_changed = True
+            self.settle_stable = 0
+        else:
+            self.settle_stable += 1
+        settled = self.settle_changed and self.settle_stable >= SETTLE_STABLE_SCANS
+        if self.settle_remaining > 0 and not settled:
+            self.settle_job = cron.after(SETTLE_INTERVAL, self._settle)
 
     def request_refresh(self, delay="0ms"):
         if (
@@ -375,6 +424,13 @@ class ApplicationLabelSession(LabelSession):
     def _query_failed(self):
         if self.stopped:
             return
+        if not self.targets and time.monotonic() < self.start_deadline:
+            logging.debug(
+                "Application labels: first scan failed; retrying", exc_info=True
+            )
+            if self.start_retry_job is None:
+                self.start_retry_job = cron.after(SETTLE_INTERVAL, self._retry_start)
+            return
         logging.exception("Application labels: unable to query focused controls")
         self._stop_session()
         actions.labels.hide()
@@ -598,6 +654,12 @@ class ApplicationLabelSession(LabelSession):
         if self.refresh_job is not None:
             cron.cancel(self.refresh_job)
             self.refresh_job = None
+        if self.settle_job is not None:
+            cron.cancel(self.settle_job)
+            self.settle_job = None
+        if self.start_retry_job is not None:
+            cron.cancel(self.start_retry_job)
+            self.start_retry_job = None
         self._cancel_deferred()
         self.menu_hover_target = None
         self.menu_hover_position = None

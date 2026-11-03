@@ -40,6 +40,7 @@ class ApplicationActivationTests(ApplicationTestCase):
         self.assertIs(self.application.get("AXManualAccessibility"), True)
 
     def test_disallowed_bundle_is_not_enabled_without_force(self):
+        del self.application.attrs["AXManualAccessibility"]
         self.talon.settings["user.accessibility_activation_disallowed_bundles"] = (
             "com.other, com.example , "
         )
@@ -103,6 +104,62 @@ class ApplicationActivationTests(ApplicationTestCase):
         self.talon.notify.assert_called_with(
             "Accessibility interfaces", "Enabled: No supported writable interfaces"
         )
+
+    def settle_calls(self, session):
+        return [
+            call
+            for call in self.talon.cron.after.call_args_list
+            if call.args[1] == session._settle
+        ]
+
+    def test_already_enabled_app_is_scanned_once(self):
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.settle_calls(self.module._session), [])
+
+    def test_just_enabled_app_rescans_until_tree_settles(self):
+        for attribute in ("AXEnhancedUserInterface", "AXManualAccessibility"):
+            self.application.attrs[attribute] = False
+        self.talon.query_results = [self.button]
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([self.button],)))
+        self.assertEqual(len(self.settle_calls(session)), 1)
+
+        self.talon.query_results = [self.button, self.popup]
+        session._settle()
+        self.assertEqual(
+            self.talon.native_calls[-1], ("show", ([self.button, self.popup],))
+        )
+        shown = len(self.talon.native_calls)
+        session._settle()
+        session._settle()
+
+        self.assertEqual(len(self.talon.native_calls), shown)
+        self.assertEqual(len(self.settle_calls(session)), 3)
+        self.assertIsNone(session.settle_job)
+
+    def test_settle_rescans_are_bounded_and_cancelled_on_stop(self):
+        self.application.attrs["AXEnhancedUserInterface"] = False
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        for _ in range(self.session_module.SETTLE_SCANS):
+            session._settle()
+        self.assertIsNone(session.settle_job)
+        self.assertEqual(
+            len(self.settle_calls(session)), self.session_module.SETTLE_SCANS
+        )
+
+        self.application.attrs["AXEnhancedUserInterface"] = False
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        job = session.settle_job
+        self.assertIsNotNone(job)
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertTrue(session.stopped)
+        self.talon.cron.cancel.assert_any_call(job)
 
 
 if __name__ == "__main__":

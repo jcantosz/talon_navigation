@@ -16,6 +16,20 @@ window when one can be found; it does not guess between multiple visible menus.
 The resolved menu is cached while both the reported menu and resolved frame
 remain valid, and is shared by selection, refresh, Back, and hover checks.
 
+Applications build their accessibility tree after `AXEnhancedUserInterface` or
+`AXManualAccessibility` is set, so the first scan may find only the window
+frame. When showing numbers turns one of those attributes on, numbers appear
+immediately and the window is re-scanned every 250 ms until two re-scans in a
+row find no change, for at most 2 seconds. Talon's
+result for setting the attributes is not trusted; the attributes are read
+before and after. Applications that already have them enabled are scanned once.
+
+If the first scan fails, for example because the application briefly reports no
+focused window, it is repeated every 250 ms instead of ending the session. The
+failure is reported only once 2 seconds have passed since the command started
+without a successful scan. Failures after numbers have been shown are reported
+immediately, as before.
+
 Selecting an `AXTab`, or an `AXRadioButton` directly inside an `AXTabGroup`,
 retains the session and requests refreshed numbers, as do expanding controls
 such as combo boxes and popup buttons. Ordinary

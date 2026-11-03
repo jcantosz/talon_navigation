@@ -223,7 +223,12 @@ class ApplicationTestCase(unittest.TestCase):
     def setUp(self):
         self.talon = FakeTalon()
         self.window = Element(AXRole="AXWindow")
-        self.application = Element(AXRole="AXApplication", AXFocusedWindow=self.window)
+        self.application = Element(
+            AXRole="AXApplication",
+            AXFocusedWindow=self.window,
+            AXEnhancedUserInterface=True,
+            AXManualAccessibility=True,
+        )
         self.talon.active_app = types.SimpleNamespace(
             pid=1,
             name="Example",
@@ -259,7 +264,12 @@ class ApplicationMenuTestCase(unittest.TestCase):
         self.window = Element(
             AXRole="AXWindow", AXFrame=frame(x=0, y=0, width=500, height=500)
         )
-        self.application = Element(AXRole="AXApplication", AXFocusedWindow=self.window)
+        self.application = Element(
+            AXRole="AXApplication",
+            AXFocusedWindow=self.window,
+            AXEnhancedUserInterface=True,
+            AXManualAccessibility=True,
+        )
         self.talon.active_app = types.SimpleNamespace(
             pid=1,
             name="Example",

@@ -92,7 +92,11 @@ def _show_application_numbers():
         return
 
     try:
+        before = activation.enabled_interfaces(owner)
         activation.prepare(owner, _activation_overrides)
+        # Apps build their AX tree after the switch is set, so the first scan
+        # may see only the window frame. Talon's set result is unreliable.
+        just_enabled = bool(activation.enabled_interfaces(owner) - before)
     except (RuntimeError, ui.UIErr):
         logging.exception("Application labels: unable to enable AX interfaces")
         app.notify(
@@ -104,7 +108,7 @@ def _show_application_numbers():
     _session = application_session.ApplicationLabelSession(
         owner, ctx, session_ctx, _stop
     )
-    _session.start()
+    _session.start(settle=just_enabled)
 
 
 @mod.action_class
