@@ -9,7 +9,7 @@ from ..lib.labels import (
     MENU_HOVER_DELAY_TICKS,
     MENU_WAIT_TICKS,
     LabelSession,
-    label_element,
+    label_elements,
     menu_opener,
     menu_parent,
 )
@@ -323,9 +323,7 @@ class ApplicationLabelSession(LabelSession):
         self.empty_menu = None
         self.empty_menu_attempts = 0
         self.targets = targets
-        self.labelled = [
-            label_element(target, in_menu=menu is not None) for target in targets
-        ]
+        self.labelled = label_elements(targets, in_menu=menu is not None)
         self.window = window
         self.menu = menu
         self.signature = signature

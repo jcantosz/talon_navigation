@@ -22,7 +22,7 @@ def usable_frame(element):
     )
 
 
-def label_element(element, in_menu=False):
+def label_element(element, in_menu=False, targets=()):
     """Anchor a row or menu item on contained text when useful."""
     role = element.get("AXRole")
     menu_item = in_menu and role == "AXMenuItem"
@@ -33,6 +33,9 @@ def label_element(element, in_menu=False):
     bounds = element.get("AXFrame")
     level = list(element.get("AXChildren") or ())
     for _ in range(LABEL_TEXT_LEVELS):
+        level = [
+            child for child in level if not any(child == target for target in targets)
+        ]
         texts = []
         for child in level:
             if (
@@ -60,6 +63,23 @@ def label_element(element, in_menu=False):
             for grandchild in child.get("AXChildren") or ()
         ]
     return element
+
+
+def label_elements(targets, in_menu=False):
+    """Keep badge anchors distinct without changing target order or activation."""
+    targets = list(targets)
+    anchors = [
+        label_element(target, in_menu=in_menu, targets=targets) for target in targets
+    ]
+    return [
+        target
+        if any(
+            index != other and (anchor == candidate or anchor == targets[other])
+            for other, candidate in enumerate(anchors)
+        )
+        else anchor
+        for index, (target, anchor) in enumerate(zip(targets, anchors))
+    ]
 
 
 def submenu_hover_point(target, menu):

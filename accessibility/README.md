@@ -92,6 +92,12 @@ selection time:
 
 A row's badge may be drawn on text inside the row for better placement, but
 the labelled text, logical row, and activation target are kept separate.
+The badge search does not enter another independently numbered target's
+subtree, but still traverses unnumbered row/group wrappers. If candidate badge
+anchors collide, or borrow another target itself, the affected badges use
+their original target elements instead. Target order and child-group activation
+are unchanged. These ownership checks use accessibility-element equality,
+not application-specific selectors.
 VS Code's pressable groups inside non-pressable rows keep their existing
 selection behavior.
 
