@@ -39,14 +39,6 @@ class BrokenElement(Element):
         pass
 
 
-class Rect:
-    def __init__(self, x, y, width, height):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-
-
 class AccessibilityInventoryTests(unittest.TestCase):
     def test_inventory_uses_shared_roles_without_requiring_talon(self):
         self.assertIs(inventory_core.CONTROL_ROLES, roles.CONTROL_ROLES)
@@ -112,43 +104,6 @@ class AccessibilityInventoryTests(unittest.TestCase):
 
         self.assertTrue(result.truncated)
         self.assertEqual(len(result.nodes), 1)
-
-    def test_visible_number_targets_exclude_layout_and_offscreen_nodes(self):
-        bounds = [Rect(0, 0, 100, 100)]
-        elements = (
-            Element(
-                {
-                    "AXRole": "AXButton",
-                    "AXPosition": (10, 10),
-                    "AXFrame": Rect(10, 10, 20, 20),
-                    "AXEnabled": True,
-                },
-                ("AXPress",),
-            ),
-            Element(
-                {
-                    "AXRole": "AXGroup",
-                    "AXPosition": (10, 10),
-                    "AXFrame": Rect(10, 10, 20, 20),
-                },
-                ("AXPress",),
-            ),
-            Element(
-                {
-                    "AXRole": "AXButton",
-                    "AXPosition": (200, 200),
-                    "AXFrame": Rect(200, 200, 20, 20),
-                },
-                ("AXPress",),
-            ),
-        )
-        result = inventory_core.collect(
-            Element({"AXRole": "AXWindow"}, children=elements), UIError
-        )
-
-        self.assertTrue(result.nodes[1].is_visible_number_target(bounds))
-        self.assertFalse(result.nodes[2].is_visible_number_target(bounds))
-        self.assertFalse(result.nodes[3].is_visible_number_target(bounds))
 
 
 if __name__ == "__main__":

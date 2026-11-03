@@ -1,6 +1,5 @@
 from collections import Counter
 from dataclasses import dataclass, field
-from math import isfinite
 
 from ..lib.roles import CONTROL_ROLES
 
@@ -26,30 +25,6 @@ class Node:
     @property
     def is_control(self):
         return bool(self.actions) or self.role in CONTROL_ROLES
-
-    def is_visible_number_target(self, screen_bounds):
-        frame = self.frame
-        if (
-            not self.matches_show_numbers
-            or self.role not in CONTROL_ROLES
-            or self.enabled is False
-            or self.hidden is True
-            or frame is None
-            or not all(
-                isfinite(value)
-                for value in (frame.x, frame.y, frame.width, frame.height)
-            )
-            or frame.width <= 0
-            or frame.height <= 0
-        ):
-            return False
-        return any(
-            frame.x < bounds.x + bounds.width
-            and frame.x + frame.width > bounds.x
-            and frame.y < bounds.y + bounds.height
-            and frame.y + frame.height > bounds.y
-            for bounds in screen_bounds
-        )
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,7 @@ from ..lib.roles import CONTROL_ROLES
 from . import discovery
 
 PANEL_ROLES = CONTROL_ROLES - {"AXMenuItem", "AXTab", "AXTextArea"}
+MAX_PANEL_NODES = 600
 
 
 def children(element):
@@ -117,38 +118,48 @@ def is_unobstructed(element, frame):
 
 def panel_targets(root, owner):
     targets = []
-    pending = [(root, 0)]
+    pending = [root]
     visited = 0
-    menu = root.get("AXRole") == "AXMenu"
+    root_role = root.get("AXRole")
+    menu = root_role == "AXMenu"
     screen_bounds = [screen.rect for screen in ui.screens()]
     while pending:
-        element, depth = pending.pop()
+        element = pending.pop()
         visited += 1
-        if visited > 600 or depth > 12:
-            raise RuntimeError("The status panel accessibility tree is too large.")
+        if visited > MAX_PANEL_NODES:
+            raise RuntimeError(
+                "The status panel accessibility tree is too large "
+                f"(over {MAX_PANEL_NODES} nodes; "
+                f"provider={owner.bundle!r}; root={root_role!r})."
+            )
         role = element.get("AXRole")
-        frame = visible_frame(element, screen_bounds)
         if element.get("AXHidden"):
             continue
-        if (
-            frame is not None
-            and element.get("AXEnabled") is not False
-            and (
-                (menu and role == "AXMenuItem" and element.get("AXTitle"))
-                or (
-                    not menu
-                    and role in PANEL_ROLES
-                    and (
-                        "AXPress" in element.actions
-                        or role
-                        in ("AXSlider", "AXTextField", "AXSearchField", "AXComboBox")
+        if (menu and role == "AXMenuItem") or (not menu and role in PANEL_ROLES):
+            frame = visible_frame(element, screen_bounds)
+            if (
+                frame is not None
+                and element.get("AXEnabled") is not False
+                and (
+                    (menu and element.get("AXTitle"))
+                    or (
+                        not menu
+                        and (
+                            "AXPress" in element.actions
+                            or role
+                            in (
+                                "AXSlider",
+                                "AXTextField",
+                                "AXSearchField",
+                                "AXComboBox",
+                            )
+                        )
                     )
                 )
-            )
-        ):
-            targets.append(Target(element, owner, frame))
+            ):
+                targets.append(Target(element, owner, frame))
         if not menu or element == root:
-            pending.extend((child, depth + 1) for child in reversed(children(element)))
+            pending.extend(reversed(children(element)))
     return targets
 
 

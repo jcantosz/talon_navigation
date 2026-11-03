@@ -68,8 +68,14 @@ the generic `<phrase>: skip()` rule, so it did **not** verify the spoken grammar
 Manual voice check: the Talon log shows the spoken `show application numbers` activating
 application labels in Slack and VS Code (`enabled AX interfaces …` entries).
 Whether `hide numbers` and `key escape` cleaned up still needs confirming by eye; it is not logged.
-The repeated `debug: rejection path failed` / `KeyError: 'sys.speech.speaker_verification_path'`
-log errors come from Talon's built-in verify plugin, not this repo.
+The previously repeated `debug: rejection path failed` /
+`KeyError: 'sys.speech.speaker_verification_path'` errors came from Talon's
+built-in verify plugin, not this repo. On the local Talon 1.0.0 build 116
+installation, the verification path was initially absent. After the user
+recorded a clip in Talon Settings > Speech Recognition, the path was present,
+the model and speaker embedding were loaded, and the missing-path error did not
+recur in the observed log. Talon subsequently logged speaker mismatches; whether
+those were expected is unknown, and the user requested no further investigation.
 
 The user confirms `show application numbers` produces different results from
 `show numbers`, but reports unclear/broken target correspondence in VS Code.
@@ -235,6 +241,14 @@ against the principles. In particular:
 [test_menu_wiring.py](../tests/test_menu_wiring.py), or recorded as accepted.
 
 ### U2. Status-bar discovery and labels
+
+**2026-11-02:** A live Slack window reproduced the "tree is too large" error
+with 277 nodes and depth 26: the previous depth-12 cutoff rejected it after only
+16 nodes. Panel traversal now accepts deep trees within its 600-node budget,
+with regression coverage for deep panels, exact limits, and cycles. The original
+19:22 error did not record its root or which limit was reached, so its exact
+cause remains unconfirmed. Future node-limit failures log the provider and root
+role rather than conflating node count with depth.
 
 **Effort:** S. Audit [status/](../status/) for focused-scope (principle 3: a
 menu-bar scan is an intentional exception and should be documented as one),

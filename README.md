@@ -229,6 +229,10 @@ has a label; unsupported adjustments notify without pressing it.
 
 Panels differ between apps and macOS versions. Only accessible controls and
 menus are supported; appearance on screen alone does not guarantee accessibility.
+Panel traversal visits at most 600 accessibility nodes, regardless of nesting
+depth. If that limit is exceeded, status navigation stops and notifies instead
+of displaying incomplete labels; for a large application window, try **show
+application numbers** instead.
 Discovery of already-open windows accepts accessible system dialogs/popovers
 owned by status providers, not their ordinary document/settings windows. Back
 from an adopted panel needs an identifiable opener or an advertised close action;

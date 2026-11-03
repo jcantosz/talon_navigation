@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 if __package__:
     from .status_support import ActionFailed, Element, Rect, StatusLabelsTestCase
@@ -8,6 +8,57 @@ else:
 
 
 class StatusControlTests(StatusLabelsTestCase):
+    def test_deep_panel_tree_within_node_limit_keeps_its_controls(self):
+        control = self.button("Deep control")
+        branch = control
+        for _ in range(26):
+            branch = Element("AXGroup", children=[branch])
+        panel = Element(
+            "AXWindow",
+            children=[branch, *(Element("AXGroup") for _ in range(250))],
+            AXSubrole="AXSystemDialog",
+        )
+
+        targets = self.module.surfaces.panel_targets(panel, self.owner)
+
+        self.assertEqual([target.element for target in targets], [control])
+
+    def test_panel_node_limit_allows_600_nodes_and_rejects_601(self):
+        panel = Element("AXWindow", children=[Element("AXGroup") for _ in range(599)])
+
+        self.assertEqual(self.module.surfaces.panel_targets(panel, self.owner), [])
+
+        panel.attrs["AXChildren"].append(Element("AXGroup"))
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"tree is too large \(over 600 nodes; "
+            r"provider='com.apple.controlcenter'; root='AXWindow'\)",
+        ):
+            self.module.surfaces.panel_targets(panel, self.owner)
+
+    def test_cyclic_panel_tree_is_still_bounded_by_node_limit(self):
+        panel = Element("AXWindow")
+        panel.attrs["AXChildren"] = [panel]
+        panel.get = Mock(wraps=panel.get)
+
+        with self.assertRaisesRegex(
+            RuntimeError, r"tree is too large \(over 600 nodes;"
+        ):
+            self.module.surfaces.panel_targets(panel, self.owner)
+
+        self.assertEqual(panel.get.call_args_list.count(call("AXChildren")), 600)
+
+    def test_panel_scan_does_not_read_frames_for_layout_nodes(self):
+        control = self.button()
+        group = Element("AXGroup", children=[control])
+        group.get = Mock(wraps=group.get)
+        panel = Element("AXWindow", children=[group])
+
+        targets = self.module.surfaces.panel_targets(panel, self.owner)
+
+        self.assertEqual([target.element for target in targets], [control])
+        self.assertNotIn(call("AXFrame"), group.get.call_args_list)
+
     def test_panel_role_policy_keeps_existing_controls_and_exclusions(self):
         included = (
             "AXButton",

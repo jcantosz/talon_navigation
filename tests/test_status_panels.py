@@ -22,6 +22,27 @@ class StatusPanelTests(StatusLabelsTestCase):
                 self.assertFalse(session.waiting)
                 self.assertFalse(session.internal)
 
+    def test_deep_panel_opens_and_returns_to_icons_in_both_modes(self):
+        for names in (False, True):
+            with self.subTest(names=names):
+                self.labels.hide()
+                self.owner.element.attrs["AXChildren"] = [self.bar]
+                control = self.button("Deep control")
+                branch = control
+                for _ in range(26):
+                    branch = Element("AXGroup", children=[branch])
+
+                session, panel = self.open_panel(names, [branch])
+                self.assertIs(session.surface.root, panel)
+                self.assertEqual(self.visible, [control])
+                self.assertEqual(self.names, names)
+
+                self.commands.status_labels_back()
+                self.tick(session, 3)
+                self.assertIsNone(session.surface)
+                self.assertEqual(self.visible, [self.icon])
+                self.notify.assert_not_called()
+
     def test_leaves_without_children_do_not_raise(self):
         control = self.button()
         del control.attrs["AXChildren"]
