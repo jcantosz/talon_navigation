@@ -10,7 +10,7 @@ requires macOS accessibility support and Talon's native labels API.
 When Talon's sleep-mode catch-all recognizes and ignores an utterance, a
 native notification says **Talon is asleep** and reminds you to say **wake up**.
 Notification appearance and history are controlled by your operating system.
-Warnings are limited to once every five seconds. Wake-up and other recognized
+Warnings are limited to once every sixty seconds. Wake-up and other recognized
 sleep-mode commands do not trigger warnings. This does not wake Talon or execute
 the ignored speech.
 
@@ -38,14 +38,17 @@ the microphone is actually muted or disconnected.
 ### Targeted wake and sleep
 
 When several computers running this repository can hear you, use **sleep
-&lt;target&gt;**, **wake &lt;target&gt;**, or **wake up &lt;target&gt;**. The
-reverse forms **&lt;target&gt; sleep**, **&lt;target&gt; wake**, and
-**&lt;target&gt; wake up** are also available. Each machine accepts only its own
+&lt;target&gt;** or **stop listening &lt;target&gt;** to sleep, and **wake
+&lt;target&gt;**, **listen &lt;target&gt;**, or **start listening
+&lt;target&gt;** to wake (**up** may follow **wake** or **listen**). The reverse
+forms **&lt;target&gt; sleep**, **&lt;target&gt; stop listening**,
+**&lt;target&gt; wake [up]**, **&lt;target&gt; listen [up]**, and
+**&lt;target&gt; start listening** are also available. Each machine accepts only its own
 targets:
 
 - Its short hostname, converted to a spoken form. For example,
   `office-mac.local` becomes **office mac**.
-- Its operating-system group: **windows** (also **Microsoft** or **win**),
+- Its operating-system group: **windows** (also **Microsoft**),
   **mac** (or **mac OS**), or **linux**.
 
 For stable or easier spoken names, configure a comma-separated list in that
@@ -86,30 +89,29 @@ microphone, sleep warnings, or Community subtitles.
 
 ## Formatted dictation
 
-On macOS, **type**, **literal**, and **say** followed by dictation use Talon
-Community's existing `<user.prose>` capture for punctuation, spacing, and
-capitalization, then record the result in Community's phrase history and use
-`insert()`, just like the **phrase** command.
-For example, **say hello comma world period** inserts **Hello, world.**
-This requires Talon Community and avoids requiring an accessible text field,
-which can be unreliable in editors such as VS Code.
+On macOS, **prose** followed by dictation uses Talon Community's existing
+`<user.prose>` capture for punctuation, spacing, and capitalization, then
+records the result in Community's phrase history and uses `insert()`, just like
+the **phrase** command. For example, **prose hello comma world period** inserts
+**Hello, world.** The command ends the utterance, so later words are not run as
+commands. This requires Talon Community and avoids requiring an accessible text
+field, which can be unreliable in editors such as VS Code.
 
-This overrides the default command prefixes without modifying the default
-package. It does not change unprefixed dictation mode or the **phrase** command.
-It uses Community's prose formatting rather than native AX-aware dictation;
-native last-dictation correction/selection tracking is not retained.
-The original `type <phrase> | literal <phrase> | say <phrase>` rule is also
-overridden exactly, so plain phrases cannot fall through to `dictate.phrase()`.
-That plain-phrase path uses Talon's existing word replacements, records history,
-and calls `insert()` directly. Existing formatter commands are left unchanged.
+The default **type**, **literal**, and **say** commands are not overridden:
+Talon only overrides a rule whose grammar matches exactly, and those commands
+should not be changed to require an utterance end. Unprefixed dictation mode,
+the **phrase** command, and existing formatter commands are unchanged. Prose
+formatting does not retain native last-dictation correction or selection
+tracking.
 
 - **Dictate long**: allow two seconds of silence before ending an utterance.
-- **Dictate short**: remove that override and restore your normal configured
+- **Dictate medium** (or **dictate mid**): allow one second of silence.
+- **Dictate short** (or **dictate reset**): remove that override and restore your normal configured
   speech timeout (not a hard-coded value).
 
-Say either timeout command as a separate utterance before dictating. The
+Say a timeout command as a separate utterance before dictating. The
 selection persists until changed or Talon reloads these definitions. While long
-is enabled, it affects all speech, not only the three dictation prefixes.
+or medium is enabled, it affects all speech, not only **prose** dictation.
 
 ## Application control numbers
 

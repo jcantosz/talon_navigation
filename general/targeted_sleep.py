@@ -45,7 +45,10 @@ def targeted_sleep_targets(machine_names, system_name):
         )
     targets = {name: "machine" for name in names}
     targets.update(
-        {spoken: "operating-system" for spoken in OS_TARGETS.get(system_name.casefold(), ())}
+        {
+            spoken: "operating-system"
+            for spoken in OS_TARGETS.get(system_name.casefold(), ())
+        }
     )
     return targets
 

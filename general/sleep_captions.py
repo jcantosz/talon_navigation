@@ -4,6 +4,7 @@ mod = Module()
 _enabled = True
 _previous_captions = None
 
+
 def captions_enable():
     """Enable captions without automatic sleep control."""
     global _enabled, _previous_captions
@@ -12,6 +13,7 @@ def captions_enable():
     set_captions(True)
     app.notify("Talon captions", "Captions enabled")
 
+
 def captions_disable():
     """Disable captions without automatic sleep control."""
     global _enabled, _previous_captions
@@ -19,6 +21,7 @@ def captions_disable():
     _previous_captions = None
     set_captions(False)
     app.notify("Talon captions", "Captions disabled")
+
 
 def caption_item():
     # The native menu owns subtitle state independently of speech._subtitles.

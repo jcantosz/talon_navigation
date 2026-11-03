@@ -5,9 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-SOURCE = (
-    Path(__file__).resolve().parents[1] / "general" / "targeted_sleep.py"
-)
+SOURCE = Path(__file__).resolve().parents[1] / "general" / "targeted_sleep.py"
 TALON_FILE = SOURCE.with_suffix(".talon")
 
 
@@ -73,7 +71,6 @@ class TargetedSleepTests(unittest.TestCase):
                 "desk pc": "machine",
                 "windows": "operating-system",
                 "microsoft": "operating-system",
-                "win": "operating-system",
             },
         )
 
@@ -89,8 +86,9 @@ class TargetedSleepTests(unittest.TestCase):
 
     def test_empty_machine_name_is_rejected(self):
         for names in ("", "office,"):
-            with self.subTest(names=names), self.assertRaisesRegex(
-                ValueError, "comma-separated list"
+            with (
+                self.subTest(names=names),
+                self.assertRaisesRegex(ValueError, "comma-separated list"),
             ):
                 self.module.targeted_sleep_targets(names, "Linux")
 
@@ -112,22 +110,30 @@ class TargetedSleepTests(unittest.TestCase):
         for mode in ("command", "dictation", "sleep"):
             with self.subTest(mode=mode):
                 self.assertIn(f"mode: {mode}\n", source)
-        self.assertIn(
-            "^sleep {user.targeted_sleep_target}$:\n    speech.disable()\n",
-            source,
-        )
-        self.assertIn(
-            "^{user.targeted_sleep_target} sleep$:\n    speech.disable()\n",
-            source,
-        )
-        self.assertIn(
-            "^wake [up] {user.targeted_sleep_target}$:\n    speech.enable()\n",
-            source,
-        )
-        self.assertIn(
-            "^{user.targeted_sleep_target} wake [up]$:\n    speech.enable()\n",
-            source,
-        )
+        for rule, command in (
+            (
+                "^ sleep {user.targeted_sleep_target} | "
+                "stop listening {user.targeted_sleep_target} $",
+                "speech.disable()",
+            ),
+            (
+                "^ {user.targeted_sleep_target} sleep | "
+                "{user.targeted_sleep_target} stop listening $",
+                "speech.disable()",
+            ),
+            (
+                "^ (wake | listen) [up] {user.targeted_sleep_target} | "
+                "start listening {user.targeted_sleep_target} $",
+                "speech.enable()",
+            ),
+            (
+                "^ {user.targeted_sleep_target} (listen | wake) [up] | "
+                "{user.targeted_sleep_target} start listening $",
+                "speech.enable()",
+            ),
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(f"{rule}:\n    {command}\n", source)
 
 
 if __name__ == "__main__":

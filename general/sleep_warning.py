@@ -16,7 +16,7 @@ mod.setting(
     desc="Use a temporary Talon overlay instead of native sleep notifications",
 )
 
-WARNING_INTERVAL_SECONDS = 30.0
+WARNING_INTERVAL_SECONDS = 60.0
 _last_warning = None
 _enabled_override = None
 _hide_job = None

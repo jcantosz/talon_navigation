@@ -1,4 +1,4 @@
-from talon import Context, Module, actions, app
+from talon import Context, Module, app
 
 mod = Module()
 mod.tag("navigation_dictation", desc="Insert formatted dictation on macOS")
@@ -24,12 +24,6 @@ medium_ctx.settings["speech.timeout"] = 1.0
 
 @mod.action_class
 class Actions:
-    def navigation_dictation_insert_words(words: list[str]):
-        """Insert a default-command phrase and record it in phrase history."""
-        text = " ".join(actions.dictate.replace_words(words))
-        actions.user.add_phrase_to_history(text)
-        actions.insert(text)
-
     def navigation_dictation_long():
         """Use a two-second speech timeout until dictate short is spoken."""
         ctx.tags = ["user.navigation_dictation", "user.navigation_dictation_long"]

@@ -115,12 +115,12 @@ class SleepWarningTests(unittest.TestCase):
         self.gui.show.assert_not_called()
         self.app.notify.assert_not_called()
 
-    def test_limits_warnings_to_once_every_five_seconds(self):
+    def test_limits_warnings_to_once_every_sixty_seconds(self):
         self.module.on_phrase(self.ignored)
-        self.now.return_value = 104.99
+        self.now.return_value = 159.99
         self.module.on_phrase(self.ignored)
         self.app.notify.assert_called_once()
-        self.now.return_value = 105.0
+        self.now.return_value = 160.0
         self.module.on_phrase(self.ignored)
         self.assertEqual(self.app.notify.call_count, 2)
 

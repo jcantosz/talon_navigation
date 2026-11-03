@@ -14,4 +14,3 @@ show menu numbers:
 
 [show] (men | menu) [bar] (num | numb | number | numbers):
     user.menu_labels_show(false)
-

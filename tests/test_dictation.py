@@ -3,7 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 SOURCE = Path(__file__).resolve().parents[1] / "dictation" / "dictation.py"
 
@@ -27,7 +27,6 @@ class DictationTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("dictation_under_test", SOURCE)
         self.module = importlib.util.module_from_spec(spec)
         self.actions = Mock()
-        self.actions.dictate.replace_words.side_effect = lambda words: list(words)
         talon = types.SimpleNamespace(
             Context=Context, Module=Module, actions=self.actions, app=Mock()
         )
@@ -54,42 +53,24 @@ class DictationTests(unittest.TestCase):
             self.assertEqual(self.module.ctx.tags, ["user.navigation_dictation"])
         self.assertEqual(self.module.ctx.settings, {})
 
-    def test_each_prefix_inserts_prose_and_records_history_like_phrase(self):
-        grammar = SOURCE.with_suffix(".talon").read_text()
-        for prefix in ("type", "literal", "say"):
-            with self.subTest(prefix=prefix):
-                self.assertIn(
-                    f"{prefix} <user.prose>$:\n"
-                    "    user.add_phrase_to_history(prose)\n"
-                    "    insert(prose)\n",
-                    grammar,
-                )
-
-    def test_default_rule_is_overridden_with_the_exact_original_grammar(self):
+    def test_prose_command_inserts_and_records_history_like_phrase(self):
         grammar = SOURCE.with_suffix(".talon").read_text()
         self.assertIn(
-            "type <phrase> | literal <phrase> | say <phrase>:\n"
-            "    user.navigation_dictation_insert_words(phrase)\n",
+            "prose <user.prose>$:\n"
+            "    user.add_phrase_to_history(prose)\n"
+            "    insert(prose)\n",
             grammar,
         )
 
-    def test_default_phrase_list_inserts_and_records_the_same_text(self):
-        self.module.Actions.navigation_dictation_insert_words(["hello", "world"])
-        self.assertEqual(
-            self.actions.mock_calls,
-            [
-                call.dictate.replace_words(["hello", "world"]),
-                call.user.add_phrase_to_history("hello world"),
-                call.insert("hello world"),
-            ],
-        )
-
-    def test_default_phrase_preserves_existing_word_replacements(self):
-        self.actions.dictate.replace_words.side_effect = None
-        self.actions.dictate.replace_words.return_value = ["January", "first"]
-        self.module.Actions.navigation_dictation_insert_words(["january", "first"])
-        self.actions.user.add_phrase_to_history.assert_called_once_with("January first")
-        self.actions.insert.assert_called_once_with("January first")
+    def test_default_type_literal_say_commands_are_not_overridden(self):
+        rules = [
+            line
+            for line in SOURCE.with_suffix(".talon").read_text().splitlines()
+            if line and not line.startswith(("#", " "))
+        ]
+        for prefix in ("type", "literal", "say"):
+            with self.subTest(prefix=prefix):
+                self.assertFalse(any(rule.startswith(prefix) for rule in rules))
 
     def test_existing_formatter_commands_are_not_overridden(self):
         grammar = SOURCE.with_suffix(".talon").read_text()
