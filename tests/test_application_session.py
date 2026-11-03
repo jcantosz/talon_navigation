@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 # Talon imports packages; unittest discovery can load these modules top-level.
 if __package__:
     from .accessibility_support import (
+        ROOT,
         SESSION_TAG,
         ApplicationTestCase,
         Element,
@@ -14,6 +15,7 @@ if __package__:
     )
 else:
     from accessibility_support import (
+        ROOT,
         SESSION_TAG,
         ApplicationTestCase,
         Element,
@@ -34,11 +36,31 @@ class ApplicationSessionTests(ApplicationTestCase):
                 self.assertEqual(fake.declared_settings, {})
                 module.ui.register.assert_not_called()
 
+    def test_show_numbers_overrides_default_and_keeps_legacy_query(self):
+        self.assertIn("user.application_numbers_enabled", self.talon.active_tags())
+        grammar = (ROOT / "accessibility" / "inventory_enabled.talon").read_text()
+        default = (
+            "show numbers [once]:\n    user.accessibility_show_application_numbers()"
+        )
+        self.assertIn("tag: user.application_numbers_enabled", grammar)
+        self.assertIn(default, grammar)
+        self.assertIn(
+            "show (legacy | native | talon) numbers [once]:\n"
+            '    labels.show_query("[AXPosition]:action(AXPress)")',
+            grammar,
+        )
+        backup = (ROOT / "accessibility" / "inventory.talon").read_text()
+        self.assertIn("show application numbers:", backup)
+
     def test_entrypoint_preserves_command_settings_and_event_registrations(self):
-        self.assertEqual(len(self.talon.contexts), 3)
+        self.assertEqual(len(self.talon.contexts), 4)
         self.assertEqual(
             self.talon.declared_tags,
-            ["application_labels_active", "application_labels_session"],
+            [
+                "application_numbers_enabled",
+                "application_labels_active",
+                "application_labels_session",
+            ],
         )
         self.assertEqual(
             {

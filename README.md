@@ -115,9 +115,12 @@ or medium is enabled, it affects all speech, not only **prose** dictation.
 
 ## Application control numbers
 
-- **Show application numbers**: number supported controls in the focused
-  application window. Say a displayed number to activate its control, or
-  **move mouse to &lt;number&gt;** to move the pointer without activating it.
+- **Show numbers** or **show application numbers**: number supported controls
+  in the focused application window. Say a displayed number to activate its
+  control, or **move mouse to &lt;number&gt;** to move the pointer without
+  activating it.
+- **Show legacy numbers** (also **show native numbers** or **show talon
+  numbers**): run Talon's default **show numbers** query unchanged.
 - If an accessible menu opens, including by mouse, its controls replace the
   window numbers. Submenus likewise replace their parent menu's numbers.
 - **Numbers back** or **application numbers back**: return from a submenu to
@@ -130,7 +133,8 @@ or medium is enabled, it affects all speech, not only **prose** dictation.
   item also ends the session; dismissing a menu manually restores window
   numbers.
 
-This is separate from Talon's default **show numbers** and does not modify
+**Show numbers** overrides the default command's identical phrase through the
+always-enabled `user.application_numbers_enabled` tag, without modifying
 Community or the default command files. It enables supported accessibility
 interfaces and filters generic containers, while retaining eligible list rows.
 VS Code uses deferred web-area queries and window clipping; Slack uses window

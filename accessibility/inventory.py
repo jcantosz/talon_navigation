@@ -8,6 +8,10 @@ from . import activation, application_session
 
 mod = Module()
 mod.tag(
+    "application_numbers_enabled",
+    desc="Use application numbers for the default 'show numbers' command",
+)
+mod.tag(
     "application_labels_active",
     desc="Navigating focused application controls with accessibility labels",
 )
@@ -51,6 +55,9 @@ mod.setting(
         "the queried window or menu; tolerates elements removed during the query."
     ),
 )
+enabled_ctx = Context()
+enabled_ctx.matches = "os: mac"
+enabled_ctx.tags = ["user.application_numbers_enabled"]
 ctx = Context()
 ctx.matches = "os: mac"
 session_ctx = Context()
