@@ -145,6 +145,7 @@ class StatusLabelsTestCase(unittest.TestCase):
             actions=self.actions,
             app=types.SimpleNamespace(notify=self.notify),
             cron=self.cron,
+            ctrl=types.SimpleNamespace(),
             ui=self.ui,
         )
         root_package = types.ModuleType("talon_navigation_under_test")

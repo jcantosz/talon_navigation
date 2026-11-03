@@ -6,22 +6,10 @@ from math import isfinite
 
 from talon import ui
 
+from ..lib.roles import CONTROL_ROLES
 from . import discovery
 
-PANEL_ROLES = {
-    "AXButton",
-    "AXCheckBox",
-    "AXComboBox",
-    "AXDisclosureTriangle",
-    "AXLink",
-    "AXMenuButton",
-    "AXPopUpButton",
-    "AXRadioButton",
-    "AXSearchField",
-    "AXSlider",
-    "AXSwitch",
-    "AXTextField",
-}
+PANEL_ROLES = CONTROL_ROLES - {"AXMenuItem", "AXTab", "AXTextArea"}
 
 
 def children(element):

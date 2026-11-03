@@ -1,13 +1,17 @@
-import importlib.util
+import importlib
+import sys
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location(
-    "inventory_core",
-    Path(__file__).resolve().parents[1] / "accessibility" / "inventory_core.py",
-)
-inventory_core = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(inventory_core)
+package = types.ModuleType("inventory_under_test")
+package.__path__ = [str(Path(__file__).resolve().parents[1])]
+with patch.dict(sys.modules, {"talon": None, package.__name__: package}):
+    inventory_core = importlib.import_module(
+        f"{package.__name__}.accessibility.inventory_core"
+    )
+    roles = importlib.import_module(f"{package.__name__}.lib.roles")
 
 
 class UIError(Exception):
@@ -44,6 +48,29 @@ class Rect:
 
 
 class AccessibilityInventoryTests(unittest.TestCase):
+    def test_inventory_uses_shared_roles_without_requiring_talon(self):
+        self.assertIs(inventory_core.CONTROL_ROLES, roles.CONTROL_ROLES)
+        self.assertEqual(
+            roles.CONTROL_ROLES,
+            {
+                "AXButton",
+                "AXCheckBox",
+                "AXComboBox",
+                "AXDisclosureTriangle",
+                "AXLink",
+                "AXMenuButton",
+                "AXMenuItem",
+                "AXPopUpButton",
+                "AXRadioButton",
+                "AXSearchField",
+                "AXSlider",
+                "AXSwitch",
+                "AXTab",
+                "AXTextArea",
+                "AXTextField",
+            },
+        )
+
     def test_identifies_the_show_numbers_predicate(self):
         button = Element(
             {"AXRole": "AXButton", "AXPosition": (10, 20)},

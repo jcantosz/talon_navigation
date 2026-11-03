@@ -17,6 +17,17 @@ else:
 
 
 class ApplicationCollectionTests(ApplicationTestCase):
+    def test_application_query_keeps_all_shared_control_roles(self):
+        controls = [
+            Element(AXRole=role, AXFrame=frame())
+            for role in sorted(self.collection.CONTROL_ROLES)
+        ]
+        self.talon.query_results = controls
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, controls)
+
     def test_application_query_uses_configured_depth(self):
         for configured, expected in ((0, -1), (13, 13), (40, 40)):
             with self.subTest(depth=configured):

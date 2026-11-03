@@ -7,11 +7,11 @@ from talon import actions, app, cron, ctrl, settings, ui
 from ..lib.labels import (
     MENU_BACK_FALLBACK_TICKS,
     MENU_HOVER_DELAY_TICKS,
+    MENU_WAIT_TICKS,
     LabelSession,
     label_element,
     menu_opener,
     menu_parent,
-    submenu_hover_point,
 )
 from . import controls
 
@@ -22,7 +22,6 @@ EXPANDING_ROLES = {
     "AXPopUpButton",
 }
 MENU_POLL_INTERVAL = "100ms"
-MENU_WAIT_TICKS = 15
 
 
 def _may_expand(element):
@@ -195,19 +194,9 @@ class ApplicationLabelSession(LabelSession):
         self.menu_hover_target = None
         self.menu_hover_position = None
         try:
-            if ctrl.mouse_pos() != position or not self._transition_focus_valid():
-                return
-            point = submenu_hover_point(target, self.menu)
-            if (
-                self.stopped
-                or point is None
-                or ctrl.mouse_pos() != position
-                or not self._transition_focus_valid()
-                or ui.active_menu() != self.menu
-                or self.stopped
-            ):
-                return
-            actions.mouse_move(*point)
+            self.hover_submenu_if_current(
+                target, self.menu, position, self._transition_focus_valid
+            )
         except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
             if self.stopped:
                 return

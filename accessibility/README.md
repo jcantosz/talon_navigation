@@ -25,6 +25,11 @@ contexts for reload cleanup.
 The menu transition state machine stays together rather than being spread over
 mixins or mutually dependent modules. Voice commands, settings, query budgets,
 control ordering, and per-application overrides are unchanged.
+Control roles come from the Talon-independent [shared role definitions](../lib/roles.py);
+diagnostic classification still does not implement the runtime row or clipping
+rules. The session shares guarded submenu hovering and menu transition timing
+through [label helpers](../lib/labels.py), but owns its focus validation and
+return-to-window behavior.
 
 Runtime tests follow the same boundaries: `test_application_collection`,
 `test_application_rows`, `test_application_web_areas`,

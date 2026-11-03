@@ -135,13 +135,14 @@ class ApplicationMenuSelectionTests(ApplicationMenuTestCase):
         submenu, item = self.nested_menu()
         self.talon.dispatch_labels("select", 1)
 
-        def change_menu(*args):
-            self.talon.active_menu = submenu
-            return (50, 35)
+        get = self.item.get
 
-        with patch.object(
-            self.session_module, "submenu_hover_point", side_effect=change_menu
-        ):
+        def change_menu(attribute):
+            if attribute == "AXHasPopup":
+                self.talon.active_menu = submenu
+            return get(attribute)
+
+        with patch.object(self.item, "get", side_effect=change_menu):
             for _ in range(self.session_module.MENU_HOVER_DELAY_TICKS):
                 session._check_menu()
 
@@ -155,15 +156,16 @@ class ApplicationMenuSelectionTests(ApplicationMenuTestCase):
         session = self.start(self.menu)
         self.talon.dispatch_labels("select", 1)
 
-        def replace_session(*args):
-            self.talon.dispatch_labels("hide")
-            self.actions.accessibility_show_application_numbers()
-            self.talon.native_calls.clear()
-            return (50, 35)
+        get = self.item.get
 
-        with patch.object(
-            self.session_module, "submenu_hover_point", side_effect=replace_session
-        ):
+        def replace_session(attribute):
+            if attribute == "AXHasPopup":
+                self.talon.dispatch_labels("hide")
+                self.actions.accessibility_show_application_numbers()
+                self.talon.native_calls.clear()
+            return get(attribute)
+
+        with patch.object(self.item, "get", side_effect=replace_session):
             for _ in range(self.session_module.MENU_HOVER_DELAY_TICKS):
                 session._check_menu()
 

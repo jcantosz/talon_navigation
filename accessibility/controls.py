@@ -5,7 +5,8 @@ from math import isfinite
 
 from talon import axquery, settings, ui
 
-from ..lib.labels import CONTROL_ROLES, usable_frame
+from ..lib.labels import usable_frame
+from ..lib.roles import CONTROL_ROLES
 
 QUERY = "[AXPosition]:action(AXPress)"
 ROW_ITEM_LEVELS = 3

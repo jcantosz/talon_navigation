@@ -8,6 +8,53 @@ else:
 
 
 class StatusControlTests(StatusLabelsTestCase):
+    def test_panel_role_policy_keeps_existing_controls_and_exclusions(self):
+        included = (
+            "AXButton",
+            "AXCheckBox",
+            "AXComboBox",
+            "AXDisclosureTriangle",
+            "AXLink",
+            "AXMenuButton",
+            "AXPopUpButton",
+            "AXRadioButton",
+            "AXSearchField",
+            "AXSlider",
+            "AXSwitch",
+            "AXTextField",
+        )
+        excluded = (
+            "AXMenuItem",
+            "AXTab",
+            "AXTextArea",
+            "AXRow",
+            "AXGroup",
+            "AXStaticText",
+        )
+        controls = [self.button(role, role=role) for role in (*included, *excluded)]
+        panel = Element("AXWindow", children=controls)
+
+        targets = self.module.surfaces.panel_targets(panel, self.owner)
+
+        self.assertEqual(self.module.surfaces.PANEL_ROLES, set(included))
+        self.assertEqual(
+            [target.element for target in targets], controls[: len(included)]
+        )
+
+    def test_panel_role_policy_keeps_nonpressable_editable_controls(self):
+        included = ("AXSlider", "AXTextField", "AXSearchField", "AXComboBox")
+        controls = [
+            Element(role, role, Rect(700, 60, 80, 30))
+            for role in (*included, "AXButton", "AXTextArea", "AXTab")
+        ]
+        panel = Element("AXWindow", children=controls)
+
+        targets = self.module.surfaces.panel_targets(panel, self.owner)
+
+        self.assertEqual(
+            [target.element for target in targets], controls[: len(included)]
+        )
+
     def test_slider_selection_does_not_change_value(self):
         slider = self.button("Volume", role="AXSlider")
         self.open_panel(controls=[slider])

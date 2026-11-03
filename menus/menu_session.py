@@ -5,14 +5,12 @@ from talon import actions, app, ctrl, ui
 from ..lib.labels import (
     MENU_BACK_FALLBACK_TICKS,
     MENU_HOVER_DELAY_TICKS,
+    MENU_WAIT_TICKS,
     LabelSession,
     label_element,
     menu_opener,
     menu_parent,
-    submenu_hover_point,
 )
-
-MENU_WAIT_TICKS = 15
 
 
 def _targets_in(container):
@@ -106,19 +104,12 @@ class MenuSession(LabelSession):
         self.hover_position = None
         self.hover_window = None
         try:
-            if ctrl.mouse_pos() != position or not self.transition_focus_valid(window):
-                return
-            point = submenu_hover_point(target, self.previous_menu)
-            if (
-                self.stopped
-                or point is None
-                or ctrl.mouse_pos() != position
-                or not self.transition_focus_valid(window)
-                or ui.active_menu() != self.previous_menu
-                or self.stopped
-            ):
-                return
-            actions.mouse_move(*point)
+            self.hover_submenu_if_current(
+                target,
+                self.previous_menu,
+                position,
+                lambda: self.transition_focus_valid(window),
+            )
         except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
             if not self.stopped:
                 self._failed("Unable to open the selected submenu.")

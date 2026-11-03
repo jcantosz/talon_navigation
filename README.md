@@ -307,8 +307,20 @@ similarity, and full recognition precedence are not resolved.
 
 Application, menu, and status navigation share label rendering, active-context,
 polling, cancellation, and menu-ancestry helpers through
-[`lib/labels.py`](lib/labels.py). Feature modules retain their own
-navigation-specific state and accessibility traversal.
+[`lib/labels.py`](lib/labels.py). Application and menu numbering also share the
+guarded submenu-hover operation and menu transition timeout; their focus checks,
+error reporting, and Back destinations remain feature-specific.
+
+[`lib/roles.py`](lib/roles.py) defines the common control roles without importing
+Talon. Application collection, label placement, diagnostics, and status panels
+reuse that definition. Non-menu status panels retain their existing exclusions
+of menu items, tabs, and text areas; status menus still number direct menu items.
+Sharing the role vocabulary does not make the diagnostic inventory a runtime
+collector or change its separate visibility rules.
+
+Feature modules retain their own navigation-specific state and accessibility
+traversal. Application query depth, timeouts, clipping, and deferred web areas
+remain independent of the bounded status-panel traversal and status-icon probes.
 Application-numbering module responsibilities and focused test groups are
 described in the [accessibility implementation layout](accessibility/README.md#implementation-layout).
 

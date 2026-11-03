@@ -1,27 +1,13 @@
 from math import isfinite
 
-from talon import actions, cron
+from talon import actions, cron, ctrl, ui
 
+from .roles import CONTROL_ROLES
+
+MENU_WAIT_TICKS = 15
 MENU_HOVER_DELAY_TICKS = 3
 MENU_BACK_FALLBACK_TICKS = 10
 LABEL_TEXT_LEVELS = 4
-CONTROL_ROLES = {
-    "AXButton",
-    "AXCheckBox",
-    "AXComboBox",
-    "AXDisclosureTriangle",
-    "AXLink",
-    "AXMenuButton",
-    "AXMenuItem",
-    "AXPopUpButton",
-    "AXRadioButton",
-    "AXSearchField",
-    "AXSlider",
-    "AXSwitch",
-    "AXTab",
-    "AXTextArea",
-    "AXTextField",
-}
 
 
 def usable_frame(element):
@@ -171,6 +157,22 @@ class LabelSession:
             actions.labels.hide()
         finally:
             self.preserve_hide = previous
+
+    def hover_submenu_if_current(self, target, menu, position, focus_valid):
+        """Hover only while the session, focus, menu, and pointer remain current."""
+        if self.stopped or ctrl.mouse_pos() != position or not focus_valid():
+            return
+        point = submenu_hover_point(target, menu)
+        if (
+            self.stopped
+            or point is None
+            or ctrl.mouse_pos() != position
+            or not focus_valid()
+            or ui.active_menu() != menu
+            or self.stopped
+        ):
+            return
+        actions.mouse_move(*point)
 
     def stop(self):
         if self.stopped:

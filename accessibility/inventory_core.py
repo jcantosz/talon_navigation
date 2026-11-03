@@ -2,23 +2,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from math import isfinite
 
-CONTROL_ROLES = {
-    "AXButton",
-    "AXCheckBox",
-    "AXComboBox",
-    "AXDisclosureTriangle",
-    "AXLink",
-    "AXMenuButton",
-    "AXMenuItem",
-    "AXPopUpButton",
-    "AXRadioButton",
-    "AXSearchField",
-    "AXSlider",
-    "AXSwitch",
-    "AXTab",
-    "AXTextArea",
-    "AXTextField",
-}
+from ..lib.roles import CONTROL_ROLES
 
 
 @dataclass(frozen=True)

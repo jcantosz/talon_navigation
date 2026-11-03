@@ -16,6 +16,7 @@ class StatusWiringTests(unittest.TestCase):
             actions=types.SimpleNamespace(),
             app=types.SimpleNamespace(),
             cron=types.SimpleNamespace(),
+            ctrl=types.SimpleNamespace(),
             ui=types.SimpleNamespace(Element=object, App=object, Rect=object),
         )
         root = types.ModuleType("status_wiring_under_test")
@@ -66,6 +67,7 @@ class StatusWiringTests(unittest.TestCase):
             actions=types.SimpleNamespace(),
             app=types.SimpleNamespace(),
             cron=types.SimpleNamespace(),
+            ctrl=types.SimpleNamespace(),
             ui=types.SimpleNamespace(Element=object, App=object, Rect=object),
         )
         root = types.ModuleType("status_entrypoint_under_test")

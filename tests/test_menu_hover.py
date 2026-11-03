@@ -3,9 +3,9 @@ import unittest
 from unittest.mock import patch
 
 if __package__:
-    from .menu_support import Element, MenuLabelsTestCase
+    from .menu_support import ActionFailed, Element, MenuLabelsTestCase
 else:
-    from menu_support import Element, MenuLabelsTestCase
+    from menu_support import ActionFailed, Element, MenuLabelsTestCase
 
 
 class HoverTests(MenuLabelsTestCase):
@@ -96,27 +96,43 @@ class HoverTests(MenuLabelsTestCase):
                 self.module.actions.mouse_move.assert_not_called()
 
     def test_menu_number_hover_does_not_move_after_session_replacement(self):
-        self.hoverable_menu()
+        _, target = self.hoverable_menu()
         self.actions.menu_labels_show(False)
         session = self.module._session
         self.labels.select(1)
 
-        def replace_session(*args):
-            self.labels.hide()
-            self.actions.menu_labels_show(False)
-            return (50, 35)
+        get = target.get
 
-        with patch.object(
-            self.menu_session,
-            "submenu_hover_point",
-            side_effect=replace_session,
-        ):
+        def replace_session(attribute):
+            if attribute == "AXHasPopup":
+                self.labels.hide()
+                self.actions.menu_labels_show(False)
+            return get(attribute)
+
+        with patch.object(target, "get", side_effect=replace_session):
             for _ in range(self.menu_session.MENU_HOVER_DELAY_TICKS):
                 session.update()
 
         self.assertTrue(session.stopped)
         self.assertIsNot(self.module._session, session)
         self.module.actions.mouse_move.assert_not_called()
+
+    def test_menu_hover_failure_is_reported_and_cleans_up(self):
+        self.hoverable_menu()
+        self.actions.menu_labels_show(False)
+        session = self.module._session
+        self.labels.select(1)
+        self.module.actions.mouse_move.side_effect = ActionFailed("mouse failed")
+
+        with self.assertLogs(level="ERROR"):
+            for _ in range(self.menu_session.MENU_HOVER_DELAY_TICKS):
+                session.update()
+
+        self.assertTrue(session.stopped)
+        self.assertIsNone(self.module._session)
+        self.notify.assert_called_once_with(
+            "Menu labels", "Unable to open the selected submenu."
+        )
 
 
 if __name__ == "__main__":
