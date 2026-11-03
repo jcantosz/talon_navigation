@@ -134,6 +134,43 @@ def _surface_clip(surface):
     return surface.get("AXFrame")
 
 
+def visible_menu(window):
+    """Find an unambiguous visible menu without entering closed submenu trees."""
+    if window is None:
+        raise RuntimeError("The application has no focused accessibility window.")
+    pending = [window]
+    menus = []
+    for _ in range(MAX_NATIVE_NODES):
+        if not pending:
+            return menus[0] if len(menus) == 1 else None
+        element = pending.pop()
+        if element.get("AXRole") == "AXMenu":
+            if usable_frame(element):
+                menus.append(element)
+            continue
+        pending.extend(reversed(element.get("AXChildren") or ()))
+    raise RuntimeError("Too many accessibility nodes while locating a visible menu.")
+
+
+def _query_menu_controls(menu, controls, budget):
+    children = list(menu.get("AXChildren") or ())
+    if (
+        usable_frame(menu)
+        and children
+        and all(child.get("AXRole") == "AXMenuItem" for child in children)
+    ):
+        clip = menu.get("AXFrame")
+        for child in children:
+            if (
+                _overlaps(child.get("AXFrame"), clip)
+                and child.get("AXPosition") is not None
+                and "AXPress" in child.actions
+            ):
+                _add_control(child, controls)
+        return
+    _query_controls(menu, controls, budget, _surface_clip(menu))
+
+
 def _overlaps(frame, clip):
     return (
         frame is not None
@@ -180,7 +217,7 @@ def collect(owner, menu=_CURRENT_SURFACE, window=_CURRENT_SURFACE):
     if menu is _CURRENT_SURFACE:
         menu = ui.active_menu()
     if menu is not None:
-        _query_controls(menu, controls, budget, _surface_clip(menu))
+        _query_menu_controls(menu, controls, budget)
         return controls, []
     if window is _CURRENT_SURFACE:
         window = owner.element.get("AXFocusedWindow")

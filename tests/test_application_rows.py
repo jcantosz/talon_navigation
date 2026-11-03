@@ -201,6 +201,82 @@ class ApplicationRowsTests(ApplicationTestCase):
 
         self.assertEqual(self.module._session.labelled, rows)
 
+    def test_unchanged_anchors_do_not_use_ax_equality(self):
+        class NoComparison(Element):
+            def __eq__(self, other):
+                raise AssertionError("Unchanged anchors should not need AX equality")
+
+        targets = [NoComparison(AXRole="AXButton", AXFrame=frame()) for _ in range(100)]
+
+        anchors = self.session_module.label_elements(targets)
+
+        self.assertTrue(all(a is b for a, b in zip(anchors, targets)))
+
+    def test_combo_arrow_badge_uses_combo_bounds_but_presses_arrow(self):
+        arrow = Element(AXRole="AXButton", AXTitle="", AXFrame=frame(x=85, width=15))
+        arrow.actions = ["AXPress", "AXShowMenu"]
+        combo = Element(
+            AXRole="AXComboBox",
+            AXFrame=frame(x=0, width=100),
+            AXChildren=[arrow],
+        )
+        combo.actions = ["AXConfirm", "AXShowMenu"]
+        arrow.attrs["AXParent"] = combo
+        self.talon.query_results = [arrow]
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertEqual(self.module._session.targets, [arrow])
+        self.assertEqual(self.module._session.labelled, [combo])
+        self.talon.dispatch_labels("select", 1)
+        self.assertEqual(arrow.performed, ["AXPress"])
+        self.assertEqual(combo.performed, [])
+        self.assertIsNotNone(self.module._session)
+
+    def test_combo_arrow_anchor_requires_containment_and_unique_pressable_child(self):
+        arrow = Element(AXRole="AXButton", AXFrame=frame(x=85, width=15))
+        combo = Element(
+            AXRole="AXComboBox",
+            AXFrame=frame(x=0, width=100),
+            AXChildren=[arrow],
+        )
+        combo.actions = ["AXShowMenu"]
+        arrow.attrs["AXParent"] = combo
+        other = Element(AXRole="AXButton", AXFrame=frame())
+        for children, bounds in (
+            ([arrow, other], frame(x=0, width=100)),
+            ([arrow], frame(x=0, width=50)),
+        ):
+            combo.attrs.update(AXChildren=children, AXFrame=bounds)
+            self.assertIs(self.session_module.label_elements([arrow])[0], arrow)
+
+    def test_distinct_text_frames_do_not_use_ax_equality(self):
+        class NoComparison(Element):
+            def __eq__(self, other):
+                raise AssertionError("Different frames should not need AX equality")
+
+        rows = [
+            Element(
+                AXRole="AXRow",
+                AXChildren=[
+                    NoComparison(
+                        AXRole="AXStaticText",
+                        AXFrame=frame(x=40, y=25 + index, width=60, height=18),
+                    )
+                ],
+                AXFrame=frame(x=0, height=200, width=400),
+            )
+            for index in range(100)
+        ]
+
+        anchors = self.session_module.label_elements(rows)
+
+        self.assertTrue(
+            all(
+                anchor is row.get("AXChildren")[0] for anchor, row in zip(anchors, rows)
+            )
+        )
+
     def test_selecting_text_labelled_row_presses_the_row(self):
         row, text = self.text_row(frame(x=40, y=25, width=60, height=18))
         self.talon.query_results = [row, self.button]

@@ -22,6 +22,72 @@ else:
 
 
 class ApplicationMenuScopeTests(ApplicationMenuTestCase):
+    def test_flat_menu_uses_bounds_and_does_not_walk_submenus(self):
+        self.item.attrs["AXPosition"] = (10, 20)
+        outside = Element(AXRole="AXMenuItem", AXFrame=frame(x=400))
+        closed = Element(AXRole="AXMenu")
+        self.item.attrs["AXChildren"] = [closed]
+        self.menu.attrs["AXChildren"] = [self.item, outside]
+        original_get = closed.get
+
+        def closed_get(attribute):
+            if attribute == "AXChildren":
+                self.fail("Closed submenu was traversed")
+            return original_get(attribute)
+
+        closed.get = closed_get
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.targets, [self.item])
+        self.query.assert_not_called()
+
+    def test_invalid_active_menu_resolves_to_unique_visible_window_menu(self):
+        self.item.attrs["AXPosition"] = (10, 20)
+        reported = Element(AXRole="AXMenu", AXFrame=frame(width=0, height=0))
+        self.window.attrs["AXChildren"] = [self.menu]
+        self.menu.attrs["AXChildren"] = [self.item]
+
+        session = self.start(reported)
+
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+        self.query.assert_not_called()
+        with patch.object(
+            self.collection, "visible_menu", side_effect=AssertionError("Rescanned")
+        ):
+            session._check_menu()
+        self.talon.active_menu = None
+        session._check_menu()
+        self.finish_refresh()
+        self.assertIsNone(session.menu)
+
+    def test_visible_menu_resolution_does_not_guess_between_two_popups(self):
+        second = Element(AXRole="AXMenu", AXFrame=frame())
+        self.window.attrs["AXChildren"] = [self.menu, second]
+
+        self.assertIsNone(self.collection.visible_menu(self.window))
+
+    def test_grouped_menu_retains_recursive_query_path(self):
+        wrapper = Element(AXRole="AXGroup", AXChildren=[self.item])
+        self.menu.attrs["AXChildren"] = [wrapper]
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.targets, [self.item])
+        self.query.assert_called_once()
+        self.assertIs(self.query.call_args.kwargs["root"], self.menu)
+
+    def test_flat_menu_keeps_overlapping_items_but_requires_position(self):
+        self.item.attrs.update(AXPosition=(10, 20), AXFrame=frame(x=290, width=20))
+        no_position = Element(AXRole="AXMenuItem", AXFrame=frame())
+        self.menu.attrs["AXChildren"] = [self.item, no_position]
+
+        session = self.start(self.menu)
+
+        self.assertEqual(session.targets, [self.item])
+        self.query.assert_not_called()
+
     def test_initially_open_menu_numbers_only_menu_controls(self):
         session = self.start(self.menu)
 

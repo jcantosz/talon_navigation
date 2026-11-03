@@ -8,6 +8,28 @@ voice; an unchanged menu state does not trigger a window-tree query. Custom
 popovers that macOS does not expose as an active accessibility menu are not
 covered by this detection.
 
+Flat menus exposing direct `AXMenuItem` children are collected without walking
+their submenu trees, and only items overlapping the popup frame are numbered.
+Other menu structures retain the AX query path. If the reported active menu
+has no usable frame, the session uses a unique visible menu in the focused
+window when one can be found; it does not guess between multiple visible menus.
+The resolved menu is cached while both the reported menu and resolved frame
+remain valid, and is shared by selection, refresh, Back, and hover checks.
+
+Selecting an `AXTab`, or an `AXRadioButton` directly inside an `AXTabGroup`,
+retains the session and requests refreshed numbers, as do expanding controls
+such as combo boxes and popup buttons. Ordinary
+non-expanding selections dismiss numbers even if Talon's native selection
+does not hide them. A reported activation failure on an ordinary control stops
+the session and cancels pending refreshes. An expanding control that reports
+`ActionFailed` keeps the session and requests the same post-press refresh,
+because some applications open the popup and still report failure. Failed
+presses are never retried because an application may have partially performed
+the action.
+Menu polling and refreshes are paused during selection so native label hiding
+cannot erase a menu that a reentrant refresh just numbered. Expanding selections
+invalidate the previous render before requesting their post-press refresh.
+
 ## Implementation layout
 
 | Module | Responsibility |
@@ -98,6 +120,12 @@ anchors collide, or borrow another target itself, the affected badges use
 their original target elements instead. Target order and child-group activation
 are unchanged. These ownership checks use accessibility-element equality,
 not application-specific selectors.
+An unnamed arrow button contained in an unpressable combo box can use the
+combo box's larger frame for badge placement, provided it is the combo box's
+only pressable child. Selection still presses the arrow, not the combo box.
+Collision checking skips unchanged anchors and limits accessibility-element
+comparisons to candidates with matching roles and frames, avoiding all-pairs
+cross-process comparisons for large menus.
 VS Code's pressable groups inside non-pressable rows keep their existing
 selection behavior.
 

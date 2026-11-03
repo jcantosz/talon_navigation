@@ -287,6 +287,137 @@ class ApplicationSessionTests(ApplicationTestCase):
         self.assertIsNone(self.module._session)
         self.assert_session_active(False)
 
+    def test_normal_selection_cleans_up_when_native_labels_do_not_hide(self):
+        self.actions.accessibility_show_application_numbers()
+
+        self.talon.dispatch_labels("select", 1)
+
+        self.assertIsNone(self.module._session)
+        self.assert_session_active(False)
+        self.assertEqual(self.talon.native_calls[-1], ("hide", ()))
+
+    def test_failed_expansion_keeps_session_and_numbers_opened_menu(self):
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        menu_item = Element(
+            AXRole="AXMenuItem",
+            AXPosition=(10, 10),
+            AXFrame=frame(x=10, y=10, width=100, height=20),
+        )
+        menu = Element(
+            AXRole="AXMenu",
+            AXFrame=frame(width=200, height=200),
+            AXChildren=[menu_item],
+        )
+        menu_item.attrs["AXParent"] = menu
+
+        def open_then_fail(*args):
+            if not args:
+                return self.talon.next_action()
+            self.talon.active_menu = menu
+            raise self.module.ui.ActionFailed()
+
+        self.talon.native_calls.clear()
+        with patch.object(self.module.actions, "next", side_effect=open_then_fail):
+            self.talon.dispatch_labels("select", 2)
+
+        self.assertIs(self.module._session, session)
+        self.assertFalse(session.stopped)
+        self.assertFalse(session.selecting)
+        self.assertEqual(self.talon.native_calls, [("hide", ())])
+        self.talon.notify.assert_not_called()
+        self.talon.cron.after.assert_called_once_with(
+            "100ms", session._refresh_after_event
+        )
+
+        self.talon.cron.after.call_args.args[1]()
+
+        self.assertIs(self.module._session, session)
+        self.assertIs(session.menu, menu)
+        self.assertEqual(self.talon.native_calls[-1], ("show", ([menu_item],)))
+
+    def test_failed_ordinary_selection_cancels_refresh_and_stops_session(self):
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        session.request_refresh()
+        job = session.refresh_job
+        with patch.object(
+            self.module.actions, "next", side_effect=self.module.ui.ActionFailed()
+        ):
+            self.talon.dispatch_labels("select", 1)
+
+        self.assertTrue(session.stopped)
+        self.assertIsNone(self.module._session)
+        self.talon.cron.cancel.assert_any_call(job)
+        self.assertNotIn(SESSION_TAG, self.talon.active_tags())
+        self.talon.notify.assert_called_with(
+            "Application control labels", "Unable to activate the selected control."
+        )
+
+    def test_tab_selection_survives_hide_and_redraws(self):
+        self.button.attrs["AXRole"] = "AXTab"
+        self.talon.hide_after_select = True
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+
+        self.talon.dispatch_labels("select", 1)
+        self.talon.cron.after.call_args.args[1]()
+
+        self.assertIs(self.module._session, session)
+        self.assertEqual(
+            self.talon.native_calls[-1], ("show", ([self.button, self.popup],))
+        )
+
+    def test_expansion_does_not_render_during_native_press(self):
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+
+        def press_with_events(*args):
+            if not args:
+                return self.talon.next_action()
+            self.talon.active_menu = Element(
+                AXRole="AXMenu", AXFrame=frame(width=200, height=200)
+            )
+            session._check_menu()
+            session.refresh()
+            self.module._element_changed()
+            self.assertIsNone(session.refresh_job)
+            self.talon.dispatch_labels("hide")
+
+        self.talon.native_calls.clear()
+        with patch.object(self.module.actions, "next", side_effect=press_with_events):
+            self.talon.dispatch_labels("select", 2)
+
+        self.assertIs(self.module._session, session)
+        self.assertFalse(session.selecting)
+        self.assertEqual(session.signature, ())
+        self.assertEqual(self.talon.native_calls, [("hide", ())])
+        self.talon.cron.after.assert_called_once_with(
+            "100ms", session._refresh_after_event
+        )
+
+    def test_radio_tab_refreshes_but_ordinary_radio_dismisses(self):
+        for parent_role in ("AXTabGroup", "AXGroup"):
+            with self.subTest(parent_role=parent_role):
+                self.button.attrs.update(
+                    AXRole="AXRadioButton", AXParent=Element(AXRole=parent_role)
+                )
+                self.talon.hide_after_select = True
+                self.actions.accessibility_show_application_numbers()
+                session = self.module._session
+
+                self.talon.dispatch_labels("select", 1)
+
+                if parent_role == "AXTabGroup":
+                    self.assertIs(self.module._session, session)
+                    self.talon.cron.after.call_args.args[1]()
+                    self.assertEqual(
+                        self.talon.native_calls[-1],
+                        ("show", ([self.button, self.popup],)),
+                    )
+                else:
+                    self.assertIsNone(self.module._session)
+
     def test_expansion_survives_native_hide_and_refreshes_new_targets(self):
         self.talon.hide_after_select = True
         self.actions.accessibility_show_application_numbers()

@@ -12,6 +12,7 @@ from ..lib.labels import (
     label_elements,
     menu_opener,
     menu_parent,
+    usable_frame,
 )
 from . import controls
 
@@ -20,12 +21,19 @@ EXPANDING_ROLES = {
     "AXDisclosureTriangle",
     "AXMenuButton",
     "AXPopUpButton",
+    "AXTab",
 }
 MENU_POLL_INTERVAL = "100ms"
 
 
 def _may_expand(element):
-    return element.get("AXRole") in EXPANDING_ROLES or "AXShowMenu" in element.actions
+    role = element.get("AXRole")
+    if role in EXPANDING_ROLES or "AXShowMenu" in element.actions:
+        return True
+    if role == "AXRadioButton":
+        parent = element.get("AXParent")
+        return parent is not None and parent.get("AXRole") == "AXTabGroup"
+    return False
 
 
 class ApplicationLabelSession(LabelSession):
@@ -43,6 +51,9 @@ class ApplicationLabelSession(LabelSession):
         self.refresh_job = None
         self.deferred_job = None
         self.refreshing = False
+        self.selecting = False
+        self.reported_menu = None
+        self.resolved_menu = None
         self.menu_wait = None
         self.menu_wait_target = None
         self.menu_wait_remaining = 0
@@ -58,7 +69,12 @@ class ApplicationLabelSession(LabelSession):
             self.start_updates(self._check_menu, MENU_POLL_INTERVAL)
 
     def request_refresh(self, delay="0ms"):
-        if self.stopped or self.refresh_job is not None or self.menu_wait is not None:
+        if (
+            self.stopped
+            or self.selecting
+            or self.refresh_job is not None
+            or self.menu_wait is not None
+        ):
             return
         self.refresh_job = cron.after(delay, self._refresh_after_event)
 
@@ -73,8 +89,25 @@ class ApplicationLabelSession(LabelSession):
         self.signature = ()
         self.request_refresh(delay)
 
+    def _active_menu(self):
+        menu = ui.active_menu()
+        if menu is None or usable_frame(menu):
+            self.reported_menu = None
+            self.resolved_menu = None
+            return menu
+        if (
+            menu == self.reported_menu
+            and self.resolved_menu is not None
+            and usable_frame(self.resolved_menu)
+        ):
+            return self.resolved_menu
+        resolved = controls.visible_menu(self.owner.element.get("AXFocusedWindow"))
+        self.reported_menu = menu
+        self.resolved_menu = resolved
+        return resolved if resolved is not None else menu
+
     def _check_menu(self):
-        if self.stopped or self.refreshing:
+        if self.stopped or self.refreshing or self.selecting:
             return
         try:
             active = ui.active_app()
@@ -84,7 +117,7 @@ class ApplicationLabelSession(LabelSession):
                 self._stop_session()
                 actions.labels.hide()
                 return
-            menu = ui.active_menu()
+            menu = self._active_menu()
             if self.stopped:
                 return
             if self.menu_wait is not None:
@@ -195,7 +228,11 @@ class ApplicationLabelSession(LabelSession):
         self.menu_hover_position = None
         try:
             self.hover_submenu_if_current(
-                target, self.menu, position, self._transition_focus_valid
+                target,
+                self.menu,
+                position,
+                self._transition_focus_valid,
+                self._active_menu,
             )
         except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
             if self.stopped:
@@ -211,7 +248,7 @@ class ApplicationLabelSession(LabelSession):
         try:
             if (
                 not self._transition_focus_valid()
-                or ui.active_menu() != self.menu
+                or self._active_menu() != self.menu
                 or self.stopped
             ):
                 return
@@ -229,7 +266,12 @@ class ApplicationLabelSession(LabelSession):
             )
 
     def refresh(self, force=False):
-        if self.stopped or self.refreshing or self.menu_wait is not None:
+        if (
+            self.stopped
+            or self.refreshing
+            or self.selecting
+            or self.menu_wait is not None
+        ):
             return
         active = ui.active_app()
         if self.stopped:
@@ -243,11 +285,11 @@ class ApplicationLabelSession(LabelSession):
         try:
             self._cancel_deferred()
             window = self.owner.element.get("AXFocusedWindow")
-            menu = ui.active_menu()
+            menu = self._active_menu()
             targets, deferred = controls.collect(self.owner, menu, window)
             if self.stopped:
                 return
-            if ui.active_menu() != menu:
+            if self._active_menu() != menu:
                 self._schedule_menu_refresh()
                 return
             if force and targets and deferred:
@@ -259,7 +301,7 @@ class ApplicationLabelSession(LabelSession):
                     )
                 return
             extra = controls.collect_deferred(deferred, targets)
-            if ui.active_menu() != menu:
+            if self._active_menu() != menu:
                 self._schedule_menu_refresh()
                 return
             self._update(window, menu, targets + extra, force)
@@ -276,12 +318,12 @@ class ApplicationLabelSession(LabelSession):
         try:
             if (
                 self.owner.element.get("AXFocusedWindow") != window
-                or ui.active_menu() is not None
+                or self._active_menu() is not None
             ):
                 self._schedule_menu_refresh()
                 return
             extra = controls.collect_deferred(deferred, targets)
-            if ui.active_menu() is not None:
+            if self._active_menu() is not None:
                 self._schedule_menu_refresh()
                 return
             if extra:
@@ -355,7 +397,7 @@ class ApplicationLabelSession(LabelSession):
             actions.labels.hide()
             app.notify("Application control labels", "The active application changed.")
             return
-        if self.refreshing:
+        if self.refreshing or self.selecting:
             app.notify(
                 "Application control labels",
                 "Wait for the numbers to finish refreshing.",
@@ -375,8 +417,9 @@ class ApplicationLabelSession(LabelSession):
             return
 
         target = self.targets[label - 1]
+        expand = False
         try:
-            if ui.active_menu() != self.menu:
+            if self._active_menu() != self.menu:
                 self._schedule_menu_refresh()
                 app.notify(
                     "Application control labels",
@@ -414,8 +457,11 @@ class ApplicationLabelSession(LabelSession):
             native_selection = (
                 self.labelled[label - 1] is target and activation_target is target
             )
+            self.selecting = True
             if native_selection:
                 actions.next(label)
+                if not self.stopped and not menu_selection and not expand:
+                    actions.labels.hide()
             else:
                 activation_target.perform("AXPress")
                 if self.stopped:
@@ -432,17 +478,42 @@ class ApplicationLabelSession(LabelSession):
                     self.menu_hover_position = ctrl.mouse_pos()
                     self.menu_hover_target = target
             elif expand and not self.stopped:
+                self.selecting = False
+                self.signature = ()
                 self.request_refresh("100ms")
-        except (AttributeError, RuntimeError, ui.UIErr, ui.ActionFailed):
+        except ui.ActionFailed:
+            if self.stopped:
+                return
+            if expand:
+                # Some apps (e.g. Word combo-box arrows) open the popup but still
+                # report failure. Never retry the press; refresh to show what is open.
+                logging.warning(
+                    "Application labels: expanding control reported failure; refreshing"
+                )
+                actions.labels.hide()
+                self.selecting = False
+                self.signature = ()
+                self.request_refresh("100ms")
+                return
+            logging.exception("Application labels: unable to select target")
+            self._stop_session()
+            actions.labels.hide()
+            app.notify(
+                "Application control labels",
+                "Unable to activate the selected control.",
+            )
+        except (AttributeError, RuntimeError, ui.UIErr):
             if self.stopped:
                 return
             logging.exception("Application labels: unable to select target")
+            self._stop_session()
             actions.labels.hide()
             app.notify(
                 "Application control labels",
                 "Unable to activate the selected control.",
             )
         finally:
+            self.selecting = False
             self.preserve_hide = False
 
     def back(self):
@@ -469,7 +540,7 @@ class ApplicationLabelSession(LabelSession):
                     "Wait for the menu to finish opening.",
                 )
                 return
-            menu = ui.active_menu()
+            menu = self._active_menu()
             if menu != self.menu:
                 self._schedule_menu_refresh()
                 app.notify(
