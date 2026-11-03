@@ -1,4 +1,4 @@
 os: mac
 
-[show] (notifications | date | calendar):
+show (notifications | calendar):
     key("fn-n")
