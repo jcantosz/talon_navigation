@@ -5,7 +5,8 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location(
     "text_highlight_spike_core",
     Path(__file__).resolve().parents[1]
-    / "accessibility"
+    / "experiments"
+    / "text_highlight"
     / "text_highlight_spike_core.py",
 )
 core = importlib.util.module_from_spec(spec)

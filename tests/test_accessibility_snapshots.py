@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "snapshots",
-    Path(__file__).resolve().parents[1] / "accessibility" / "snapshots.py",
+    Path(__file__).resolve().parents[1] / "diagnostics" / "snapshots.py",
 )
 snapshots = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(snapshots)
