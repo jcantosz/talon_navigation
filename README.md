@@ -5,6 +5,14 @@ command reports.
 Install this repository anywhere under Talon's `user` directory. Menu navigation
 requires macOS accessibility support and Talon's native labels API.
 
+## Window hints
+
+Say **window hints** to label panes of the focused window, then use commands
+such as **hover files** or **hover editor two**. VS Code has a declarative pane
+profile; other applications use generic AX discovery.
+See [Window hints](window_hints/README.md) for configuration, layout, validation
+and known selection/compatibility limits.
+
 ## Speech ignored while asleep
 
 When Talon's sleep-mode catch-all recognizes and ignores an utterance, a

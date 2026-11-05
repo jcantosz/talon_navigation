@@ -1,0 +1,15 @@
+{
+  "labels": "names",
+  "max_depth": 40,
+  "scope": { "ancestor": { "classes": ["split-view-view", "visible"] } },
+  "panes": [
+    { "name": "search", "match": { "role": "AXButton", "description": "Open Quick Access" }, "scope": "self" },
+    { "name": "activity bar", "match": { "role": "AXTabGroup", "description": "Active View Switcher" }, "scope": { "ancestor": { "classes": ["monaco-action-bar", "vertical"] } } },
+    { "name": "manage", "match": { "role": "AXToolbar", "description": "Manage" }, "scope": "self" },
+    { "name": "files", "match": { "classes": ["composite", "viewlet"] } },
+    { "name": "tabs", "match": { "classes": ["tabs-container"] }, "scope": "self" },
+    { "name": "editor", "match": { "classes": ["editor-instance"] }, "scope": "self" },
+    { "name": "panel", "match": { "classes": ["composite", "panel"] } },
+    { "name": "chat", "match": { "classes": ["composite", "auxiliarybar"] } }
+  ]
+}

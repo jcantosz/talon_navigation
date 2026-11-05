@@ -1,5 +1,9 @@
 # Application control numbers
 
+Pane labelling is a separate accepted feature in
+[window_hints/](../window_hints/README.md), keeping its profiles, commands and
+label proxies out of this application-control directory.
+
 The application-number collector labels supported pressable controls in the
 focused window. When macOS exposes an active menu, that menu replaces the
 window as the numbered surface. While a session is active, a lightweight
