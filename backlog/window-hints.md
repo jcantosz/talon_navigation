@@ -6,6 +6,71 @@ unimplemented. The original exploration plan and chronological evidence below
 are retained; historical limitations may be superseded by later entries.
 Follow the [project principles](README.md).
 
+## Current state (2026-11-05)
+
+This section and [feature documentation](../window_hints/README.md) describe
+the current behavior. The experiment log is historical evidence, not the
+current specification.
+
+**Accepted and implemented**
+
+- Native Talon named labels with custom profile names and 12x12 centre targets.
+  No custom canvas, underline, or horizontal rule.
+- Declarative per-application profiles; VS Code is the only configured app.
+  Its targets are search, activity bar, manage, files, each visible code editor
+  and tab strip, optional bottom panel, and the secondary sidebar named chat.
+- All repeated names have spoken numeric suffixes, including the first:
+  `tabs one`, `tabs two`, `editor one`, `editor two`. Singletons are unsuffixed.
+- Existing `hover <label>` commands move to the corresponding group centre.
+  Nine targets in a two-editor layout passed command replay and screenshot
+  validation; the later single-editor layout rendered seven unsuffixed names.
+- Label proxies retain real AX references and delegate actions to the original
+  group. Custom-target failures have logged/notified synchronous fallback to
+  original elements/geometry. Many groups have no AXPress, so selection is
+  unsupported there; focus and selection are not inferred from successful hover.
+- Apps without a profile use generic AX pane discovery. Profile mode currently
+  controls all three show commands; numbers/all variants differ only without a
+  selected profile.
+- Accepted implementation lives in [window_hints/](../window_hints/README.md);
+  shared traversal and focused surfaces live in [ax/](../ax/README.md).
+  Runtime code no longer uses spike filenames.
+
+**Validation and remaining risks**
+
+473 tests passed in the full working tree, with Ruff and Talon lint passing.
+The directory reorganization's staged tree was also tested independently of
+unrelated uncommitted changes: 471 tests ran, with three skips.
+Live Talon reload and pane rendering passed after the moves.
+These results do not establish all original spike acceptance criteria.
+The private Talon `_ref` dependency, VS Code internal DOM selectors, deferred
+render failures, stale labels after layout changes, and non-code editor kinds
+(diffs, notebooks, webviews) remain compatibility/coverage risks. Pane labels
+are snapshots; rerun `window hints` after moving or changing views.
+
+## Remaining spike status
+
+The detailed WH0–WH9 plans below retain their validation criteria.
+“Partial” means useful implementation/evidence exists, not that the whole
+original fixture matrix or acceptance bar has passed.
+
+| Spike | Status | Remaining validation or work |
+|---|---|---|
+| WH0: ground truth | Partial | Human pane inventories and precision/recall across the full app/view matrix |
+| WH1: discovery | Partial | Outlook/Slack profiles, left rails in other apps, non-code VS Code editors, selector durability after rearrange/relaunch |
+| WH2: geometry | Partial | Pure tests and centre targets work; live multi-display, collapsed/covered panes and reordered layouts remain |
+| WH3: names | Accepted current scheme; broader validation pending | Custom names and repeated spoken suffixes work; microphone recognition and other apps remain |
+| WH4: rendering | Accepted current renderer; lifecycle validation pending | Native proxy labels work; Talon-version compatibility, sleep/wake, stale targets and deferred failures remain |
+| WH5: movement/focus | Hover verified; focus not implemented | Verify an explicit keyboard-focus mechanism by key effect; report unsupported groups rather than adding a click guess |
+| WH6: scoped numbers | Not implemented | `number <pane>` with required-control equivalence, stale-session safety and return to full-window numbers |
+| WH7: profiles | Accepted mechanism; app coverage partial | VS Code profile exists; Outlook/Slack profiles, malformed-config live checks, moved panes and version resilience remain |
+| WH8: generic fallback | Partial | Generic role discovery exists; precision/recall threshold across the fixture matrix is not established |
+| WH9: grammar/promotion | Pane labels accepted; remaining commands pending | Hover command replay works; microphone trials, focus/scoped-number grammar, lifecycle and overlap checks remain |
+
+**Recommended next investigations:** selector durability on moved/split and
+non-code editors; then focus (WH5) and scoped numbers (WH6). Outlook/Slack
+profiles can be separate data-driven spikes with their own ground truth and
+screenshots. Each remains subject to the existing scope/approval rules.
+
 ## Idea
 
 Label the *panes* of the focused window (for example Outlook Mail: tools,
