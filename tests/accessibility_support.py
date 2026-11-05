@@ -241,7 +241,7 @@ class ApplicationTestCase(unittest.TestCase):
             AXRole="AXPopUpButton", AXTitle="Choose", AXFrame=frame(x=100)
         )
         self.talon.query_results = [self.button, self.popup]
-        self.module = load(self.talon, "accessibility/inventory.py")
+        self.module = load(self.talon, "application_controls/inventory.py")
         self.session_module = self.module.application_session
         self.collection = self.session_module.controls
         self.actions = self.module.Actions
@@ -284,7 +284,7 @@ class ApplicationMenuTestCase(unittest.TestCase):
         )
         self.menu.actions = ["AXCancel"]
         self.results = {id(self.window): [self.button], id(self.menu): [self.item]}
-        self.module = load(self.talon, "accessibility/inventory.py")
+        self.module = load(self.talon, "application_controls/inventory.py")
         self.session_module = self.module.application_session
         self.collection = self.session_module.controls
         self.actions = self.module.Actions

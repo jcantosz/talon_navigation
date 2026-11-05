@@ -12,7 +12,7 @@ same task as restricting labels to a pane. N8 makes that distinction explicit.
 **Priority:** High.
 
 The override is in
-[inventory_vscode.talon](../accessibility/inventory_vscode.talon).
+[inventory_vscode.talon](../application_controls/inventory_vscode.talon).
 Earlier measurements:
 
 | Maximum depth | Median query time | Result count | Notes |
@@ -953,7 +953,7 @@ with `user.accessibility_defer_web_areas` (default false, VS Code true).
 **Goal:** number the VS Code workbench without walking hidden browser pages,
 then append the visible browser page's controls without renumbering.
 
-**Scope:** `accessibility/inventory.py`, the VS Code `.talon` setting, runtime
+**Scope:** `application_controls/inventory.py`, the VS Code `.talon` setting, runtime
 tests. No app-specific Python.
 
 **Evidence that shaped the design (window 8919, `files/n10/tab_*.json`):**
@@ -1049,7 +1049,7 @@ an unresolved view-reset failure (see follow-up and N12e).
 **Goal:** stop `AttributeError: AXRole` (N12b) without losing visible
 controls or numbering hidden ones, and without being slower.
 
-**Scope:** `_query_controls` in `accessibility/inventory.py`, the VS Code
+**Scope:** `_query_controls` in `application_controls/inventory.py`, the VS Code
 `.talon` setting, runtime tests. Other apps keep Talon's pruning.
 
 **What Talon's pruning does (black box):** `MacExecutor.prune_visible(self,
@@ -1335,7 +1335,7 @@ Evidence: session `files/n10/xapp_<state>.json` and `.png`
   visible controls, faster). It is a candidate for per-app enablement in a
   Slack `.talon` file, pending a scrolled-state check and numbered activation.
 - [x] Compare results and choose: per-app policy; global default unchanged.
-- [x] Enable clip for Slack (`accessibility/inventory_slack.talon`).
+- [x] Enable clip for Slack (`application_controls/inventory_slack.talon`).
 - [x] Number list rows (row rule) and retry one transient `AXRole` error.
 - [ ] Follow-up spike: clip to the nearest scroll area instead of the window.
   Alternatively, clip only within `AXWebArea` subtrees.
@@ -1346,7 +1346,7 @@ Evidence: session `files/n10/xapp_<state>.json` and `.png`
 
 #### N12d follow-up: Slack clip, row rule and query retry, 2026-11-02
 
-**Changes** (`accessibility/inventory.py`, `inventory_slack.talon`):
+**Changes** (`application_controls/inventory.py`, `inventory_slack.talon`):
 
 - Slack enables `user.accessibility_clip_to_surface`. The global default
   stays off. Clip is an include list (VS Code, Slack), for two reasons:
@@ -1418,7 +1418,7 @@ Fix (`_label_element`):
   their own labels.
 - At this stage, selecting a substituted label pressed the row with `AXPress`.
   The later row-activation policy can instead press a uniquely qualifying
-  child group; see [the accessibility README](../accessibility/README.md).
+  child group; see [the accessibility README](../application_controls/README.md).
   Other labels normally use Talon's native selection.
 - Nested Explorer groups in VS Code keep their own frame, because text
   substitution there drew badges over file names.

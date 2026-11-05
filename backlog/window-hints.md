@@ -32,7 +32,7 @@ has no configuration, an opt-in automatic labelling heuristic is attempted.
   window-hint fixtures. WH1/WH6 should be scheduled *after* N4/N6/N8 results
   are read; if N8 has been executed, WH6 reuses its method.
 - Reuse [lib/labels.py](../lib/labels.py), the application label session
-  ([application_session.py](../accessibility/application_session.py)) and
+  ([application_session.py](../application_controls/application_session.py)) and
   `labels.mouse_move` before creating anything new.
 - Hovered-window discovery is [M1](mouse-ax.md); this track is
   focused-window only.
@@ -45,7 +45,7 @@ has no configuration, an opt-in automatic labelling heuristic is attempted.
 ## Method rules
 
 1. Read-only until the spike says otherwise; spikes live in isolated,
-   removable files (suggested `accessibility/window_hints_spike*.py` /
+   removable files (suggested `application_controls/window_hints_spike*.py` /
    `.talon`) that production code does not import.
 2. Every claim cites a measurement on a **recorded fixture state** (app,
    version, window size, display, layout). Fixtures are labelled fixtures.
@@ -359,7 +359,7 @@ notification. Evaluate on F1-F8 with their configs hidden.
 **Effort:** S. **Depends on:** WH3, WH5, WH6 (and WH7/WH8 outcome).
 
 Draft `.talon` files with the gating tag (as in
-[inventory_active.talon](../accessibility/inventory_active.talon)) and
+[inventory_active.talon](../application_controls/inventory_active.talon)) and
 check overlap with existing `move mouse`, `show numbers`, `focus`, Community
 window and mouse commands.
 

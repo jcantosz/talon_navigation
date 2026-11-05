@@ -128,8 +128,8 @@ deterministically. Confirm a normal unchanged-window selection still works.
 module reload/event registration semantics pending.
 
 **Effort:** XS. With application numbers visible and with a highlight popup
-open, save [inventory.py](../accessibility/inventory.py) and
-[text_highlight_spike.py](../accessibility/text_highlight_spike.py) separately.
+open, save [inventory.py](../application_controls/inventory.py) and
+[text_highlight_spike.py](../experiments/text_highlight/text_highlight_spike.py) separately.
 
 **Done when:** labels/popup close, the active tag is cleared, and the log
 shows no duplicate refreshes after several later UI events.
@@ -171,7 +171,7 @@ element identity before changing behaviour. No new polling.
 **Status:** Word confirmed AX ranges count UTF-16 code units. The first live
 check selected a leading space plus `"targe"` for the expected target, using
 range `(15, 21)` instead of `(16, 22)`. Added Python-codepoint↔UTF-16 conversion
-in [text_highlight_spike_core.py](../accessibility/text_highlight_spike_core.py)
+in [text_highlight_spike_core.py](../experiments/text_highlight/text_highlight_spike_core.py)
 and regression tests. Retest then selected `"target"` with range `(16, 22)`.
 The Slack draft fixture did not contain the emoji, so Slack's range units
 remain untested.
@@ -257,7 +257,7 @@ documented.
 
 ### U3. Element-event refresh cost
 
-**Effort:** S. Both [inventory.py](../accessibility/inventory.py) and the
+**Effort:** S. Both [inventory.py](../application_controls/inventory.py) and the
 highlight spike register a global `ui.register("element", ...)` handler. With
 numbers visible in VS Code, type for 10 seconds and count refreshes and query
 time in the log. **Done when:** the refresh rate and the cost of each refresh
@@ -267,7 +267,7 @@ debounce (with the user's approval) instead of adding polling.
 ### U4. Snapshot redaction completeness
 
 **Effort:** XS. Compare the attribute names in a real full snapshot against
-`REDACTED_ATTRIBUTES` in [snapshots.py](../accessibility/snapshots.py). Look for
+`REDACTED_ATTRIBUTES` in [snapshots.py](../diagnostics/snapshots.py). Look for
 text-bearing attributes such as `AXSelectedText`, `AXValueDescription`,
 `AXLabelValue`, and `AXDOMClassList`. **Done when:** the list is updated with a
 test, or the omissions are justified. Redacted files stay local regardless.

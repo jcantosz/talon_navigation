@@ -41,18 +41,18 @@ These principles are requirements, not suggestions:
 
 ### Application control numbers
 
-- [`accessibility/inventory.py`](../accessibility/inventory.py)
+- [`application_controls/inventory.py`](../application_controls/inventory.py)
   - Labels pressable controls in the focused AX window.
   - Uses Talon's native `axquery.query_all`.
   - Enables lazy accessibility interfaces through Talon AX attribute writes.
   - Maintains the activation disallow list and per-process explicit on/off
     override.
   - Refreshes through supported Talon UI events.
-- [`accessibility/inventory.talon`](../accessibility/inventory.talon)
+- [`application_controls/inventory.talon`](../application_controls/inventory.talon)
   - Production commands for application numbers and AX interface toggles.
-- [`accessibility/inventory_active.talon`](../accessibility/inventory_active.talon)
+- [`application_controls/inventory_active.talon`](../application_controls/inventory_active.talon)
   - Commands active while application labels are visible.
-- [`accessibility/inventory_vscode.talon`](../accessibility/inventory_vscode.talon)
+- [`application_controls/inventory_vscode.talon`](../application_controls/inventory_vscode.talon)
   - Sets VS Code's maximum AX query depth to unlimited (`0`) and query timeout
     to 3 seconds, following the mokuro layout checks in [N10](numbers-and-menus.md).
   - Replaces the proven-broken depth-13 limit and enables the generic web-area
@@ -129,14 +129,14 @@ handshake.
 
 ### Debug snapshots and reports
 
-- [`accessibility/debug_snapshots.py`](../accessibility/debug_snapshots.py)
+- [`diagnostics/debug_snapshots.py`](../diagnostics/debug_snapshots.py)
   - Explicit inventory and snapshot actions.
-- [`accessibility/debug_snapshots.talon`](../accessibility/debug_snapshots.talon)
+- [`diagnostics/debug_snapshots.talon`](../diagnostics/debug_snapshots.talon)
   - `accessibility inventory`, `accessibility inventory all`, and
     `accessibility snapshot`.
-- [`accessibility/inventory_core.py`](../accessibility/inventory_core.py)
-  - Debug-only iterative AX traversal.
-- [`accessibility/snapshots.py`](../accessibility/snapshots.py)
+- [`ax/inventory.py`](../ax/inventory.py)
+  - Bounded iterative AX traversal shared by diagnostics and window hints.
+- [`diagnostics/snapshots.py`](../diagnostics/snapshots.py)
   - Atomic full and redacted JSON serialization.
 - [`scripts/ax_tree_report.py`](../scripts/ax_tree_report.py)
   - Converts a snapshot into hierarchy and spatial HTML views.
@@ -151,10 +151,10 @@ by Git. Full snapshots may contain private text and should not be committed.
 
 The spike is deliberately isolated and is retained for further refinement:
 
-- [`accessibility/text_highlight_spike.py`](../accessibility/text_highlight_spike.py)
-- [`accessibility/text_highlight_spike_core.py`](../accessibility/text_highlight_spike_core.py)
-- [`accessibility/text_highlight_spike.talon`](../accessibility/text_highlight_spike.talon)
-- [`accessibility/text_highlight_spike_active.talon`](../accessibility/text_highlight_spike_active.talon)
+- [`experiments/text_highlight/text_highlight_spike.py`](../experiments/text_highlight/text_highlight_spike.py)
+- [`experiments/text_highlight/text_highlight_spike_core.py`](../experiments/text_highlight/text_highlight_spike_core.py)
+- [`experiments/text_highlight/text_highlight_spike.talon`](../experiments/text_highlight/text_highlight_spike.talon)
+- [`experiments/text_highlight/text_highlight_spike_active.talon`](../experiments/text_highlight/text_highlight_spike_active.talon)
 - [`tests/test_text_highlight_spike.py`](../tests/test_text_highlight_spike.py)
 
 Current behavior:
@@ -364,29 +364,29 @@ Use the smallest relevant checks:
 
 ```bash
 uv run ruff check \
-  accessibility/inventory.py \
-  accessibility/activation.py \
-  accessibility/controls.py \
-  accessibility/application_session.py \
-  accessibility/text_highlight_spike.py \
-  accessibility/text_highlight_spike_core.py \
+  application_controls/inventory.py \
+  application_controls/activation.py \
+  application_controls/controls.py \
+  application_controls/application_session.py \
+  experiments/text_highlight/text_highlight_spike.py \
+  experiments/text_highlight/text_highlight_spike_core.py \
   tests/test_text_highlight_spike.py
 
 uv run ruff format --check \
-  accessibility/inventory.py \
-  accessibility/activation.py \
-  accessibility/controls.py \
-  accessibility/application_session.py \
-  accessibility/text_highlight_spike.py \
-  accessibility/text_highlight_spike_core.py \
+  application_controls/inventory.py \
+  application_controls/activation.py \
+  application_controls/controls.py \
+  application_controls/application_session.py \
+  experiments/text_highlight/text_highlight_spike.py \
+  experiments/text_highlight/text_highlight_spike_core.py \
   tests/test_text_highlight_spike.py
 
 node scripts/lint_talon.mjs \
-  accessibility/inventory.talon \
-  accessibility/inventory_active.talon \
-  accessibility/inventory_vscode.talon \
-  accessibility/text_highlight_spike.talon \
-  accessibility/text_highlight_spike_active.talon
+  application_controls/inventory.talon \
+  application_controls/inventory_active.talon \
+  application_controls/inventory_vscode.talon \
+  experiments/text_highlight/text_highlight_spike.talon \
+  experiments/text_highlight/text_highlight_spike_active.talon
 
 uv run python -m unittest discover -s tests -p 'test_application_*.py'
 

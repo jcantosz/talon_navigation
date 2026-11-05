@@ -71,7 +71,7 @@ class ApplicationActivationTests(ApplicationTestCase):
     def test_reload_resets_manual_activation_overrides(self):
         self.actions.accessibility_set_interfaces(False)
 
-        load(self.talon, "accessibility/inventory.py", self.module)
+        load(self.talon, "application_controls/inventory.py", self.module)
 
         self.assertEqual(self.module._activation_overrides, {})
         self.assertTrue(self.module.Actions.accessibility_prepare_active_app())

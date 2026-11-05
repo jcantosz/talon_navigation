@@ -19,7 +19,7 @@ collapse APIs are documented. Do not modify Talon internals based on the name.
 Try existing configuration first. If unsupported, document the gap and cost
 before a custom implementation. Test one behavior at a time: transparency,
 then collapse, including restoration on interaction, timer cancellation,
-accessibility/readability, and reload cleanup.
+application_controls/readability, and reload cleanup.
 
 **Done when:** a reversible proof or a supported-API limitation is recorded.
 Choose delay/restoration behavior with the user before promotion; no new

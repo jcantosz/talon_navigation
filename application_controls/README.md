@@ -56,7 +56,8 @@ invalidate the previous render before requesting their post-press refresh.
 | [controls.py](controls.py) | AX queries, control and row filtering, clipping, deferred web areas, and focused surfaces used by diagnostics |
 | [activation.py](activation.py) | AX interface activation, bundle exclusions, and process identity checks |
 | [application_session.py](application_session.py) | Rendering, refresh scheduling, safe selection, menu transitions, and Back |
-| [inventory_core.py](inventory_core.py), [debug_snapshots.py](debug_snapshots.py), [snapshots.py](snapshots.py) | Diagnostic tree traversal, printing, and snapshot output, not the numbered-control query path |
+| [Shared AX utilities](../ax/README.md) | Bounded inventory traversal and focused-surface roots; the walker is not the numbered-control query path |
+| [Diagnostics](../diagnostics/README.md) | Opt-in inventory printing and snapshot output, separate from runtime sessions |
 
 The three extracted implementation modules do not register Talon commands or
 contexts. The entry point supplies the session's contexts and stop callback, so
@@ -82,7 +83,8 @@ diagnostic runtime tests are independent. Run the application tests with:
 uv run python -m unittest discover -s tests -p 'test_application_*.py'
 ```
 
-The experimental word highlighter and diagnostic commands still have active
+The [experimental word highlighter](../experiments/text_highlight/) and
+[diagnostic commands](../diagnostics/README.md) still have active
 Talon bindings; their names or lack of Python callers do not make them dead code.
 The highlighter will be retained and refined; validation and potential promotion
 are tracked in the [highlighting backlog](../backlog/highlighting.md).

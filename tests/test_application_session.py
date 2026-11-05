@@ -30,7 +30,7 @@ class ApplicationSessionTests(ApplicationTestCase):
         for filename in ("controls.py", "activation.py", "application_session.py"):
             with self.subTest(filename=filename):
                 fake = FakeTalon()
-                module = load(fake, f"accessibility/{filename}")
+                module = load(fake, f"application_controls/{filename}")
                 self.assertEqual(fake.contexts, [])
                 self.assertEqual(fake.declared_tags, [])
                 self.assertEqual(fake.declared_settings, {})
@@ -38,7 +38,9 @@ class ApplicationSessionTests(ApplicationTestCase):
 
     def test_show_numbers_overrides_default_and_keeps_legacy_query(self):
         self.assertIn("user.application_numbers_enabled", self.talon.active_tags())
-        grammar = (ROOT / "accessibility" / "inventory_enabled.talon").read_text()
+        grammar = (
+            ROOT / "application_controls" / "inventory_enabled.talon"
+        ).read_text()
         default = (
             "show numbers [once]:\n    user.accessibility_show_application_numbers()"
         )
@@ -49,7 +51,7 @@ class ApplicationSessionTests(ApplicationTestCase):
             '    labels.show_query("[AXPosition]:action(AXPress)")',
             grammar,
         )
-        backup = (ROOT / "accessibility" / "inventory.talon").read_text()
+        backup = (ROOT / "application_controls" / "inventory.talon").read_text()
         self.assertIn("show application numbers:", backup)
 
     def test_entrypoint_preserves_command_settings_and_event_registrations(self):
@@ -246,7 +248,7 @@ class ApplicationSessionTests(ApplicationTestCase):
         session.request_refresh()
         job = session.refresh_job
 
-        load(self.talon, "accessibility/inventory.py", self.module)
+        load(self.talon, "application_controls/inventory.py", self.module)
 
         self.assertTrue(session.stopped)
         self.talon.cron.cancel.assert_any_call(job)
