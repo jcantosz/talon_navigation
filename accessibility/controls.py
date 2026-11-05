@@ -5,6 +5,7 @@ from math import isfinite
 
 from talon import axquery, settings, ui
 
+from ..ax.surfaces import focused_surfaces as focused_surfaces
 from ..lib.labels import usable_frame
 from ..lib.roles import CONTROL_ROLES
 
@@ -13,19 +14,6 @@ ROW_ITEM_LEVELS = 3
 ROW_ACTIVATION_COVERAGE = 0.8
 MAX_NATIVE_NODES = 10000
 _CURRENT_SURFACE = object()
-
-
-def focused_surfaces(owner):
-    focused_window = owner.element.get("AXFocusedWindow")
-    if focused_window is None:
-        raise RuntimeError(
-            f"{owner.name} does not expose an AXFocusedWindow attribute."
-        )
-    surfaces = [("focused-window", focused_window)]
-    menu = ui.active_menu()
-    if menu is not None:
-        surfaces.append(("active-menu", menu))
-    return surfaces
 
 
 def _query_budget():

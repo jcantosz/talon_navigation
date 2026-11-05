@@ -9,7 +9,7 @@ package = types.ModuleType("inventory_under_test")
 package.__path__ = [str(Path(__file__).resolve().parents[1])]
 with patch.dict(sys.modules, {"talon": None, package.__name__: package}):
     inventory_core = importlib.import_module(
-        f"{package.__name__}.accessibility.inventory_core"
+        f"{package.__name__}.ax.inventory"
     )
     roles = importlib.import_module(f"{package.__name__}.lib.roles")
 

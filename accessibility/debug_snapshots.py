@@ -3,8 +3,8 @@ from pathlib import Path
 
 from talon import Module, app, ui
 
-from .controls import focused_surfaces
-from .inventory_core import collect, format_node
+from ..ax.inventory import collect, format_node
+from ..ax.surfaces import focused_surfaces
 from .snapshots import write_snapshots
 
 mod = Module()

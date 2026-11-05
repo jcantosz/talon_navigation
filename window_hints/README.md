@@ -52,7 +52,7 @@ validation for layouts intended to fill the window.
 | [labels.py](labels.py) | Named `ui.Element` proxies with 12x12 centre geometry |
 
 Collection reuses the bounded AX inventory walker and focused-surface helper
-from [accessibility/](../accessibility/). Window hints do not change the
+from [ax/](../ax/README.md). Window hints do not change the
 production application-number session.
 
 ## Reliability and limits

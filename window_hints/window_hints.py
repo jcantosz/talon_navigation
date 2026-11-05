@@ -12,8 +12,8 @@ import time
 from talon import Module, actions, app, settings, ui
 from talon.types import Rect as TalonRect
 
-from ..accessibility.controls import focused_surfaces
-from ..accessibility.inventory_core import collect
+from ..ax.inventory import collect
+from ..ax.surfaces import focused_surfaces
 from . import core, profiles
 from . import labels as pane_labels
 
