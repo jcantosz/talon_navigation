@@ -62,6 +62,33 @@ class ApplicationMenuScopeTests(ApplicationMenuTestCase):
         self.finish_refresh()
         self.assertIsNone(session.menu)
 
+    def test_stale_menu_from_another_application_is_ignored(self):
+        other = Element(AXRole="AXApplication")
+        other_window = Element(AXRole="AXWindow", AXParent=other)
+        stale = Element(
+            AXRole="AXGroup",
+            AXFrame=frame(width=500, height=0),
+            AXTopLevelUIElement=other_window,
+        )
+        self.window.attrs["AXChildren"] = [self.button]
+
+        with patch.object(
+            self.collection, "visible_menu", side_effect=AssertionError("Searched")
+        ):
+            session = self.start(stale)
+
+        self.assertIsNone(session.menu)
+        self.assertEqual(session.targets, [self.button])
+
+    def test_menu_owned_by_the_active_application_is_used(self):
+        self.window.attrs["AXParent"] = self.application
+        self.menu.attrs["AXTopLevelUIElement"] = self.window
+
+        session = self.start(self.menu)
+
+        self.assertIs(session.menu, self.menu)
+        self.assertEqual(session.targets, [self.item])
+
     def test_visible_menu_resolution_does_not_guess_between_two_popups(self):
         second = Element(AXRole="AXMenu", AXFrame=frame())
         self.window.attrs["AXChildren"] = [self.menu, second]

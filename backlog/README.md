@@ -73,7 +73,9 @@ It is executed with:
 - The application's `AXFocusedWindow` as root.
 - `visible_only=True`.
 - A query timeout read from `user.accessibility_query_timeout` (default 1 second;
-  VS Code overrides it to 3 seconds).
+  VS Code overrides it to 3 seconds). N18c also tested a local-only provisional
+  Outlook override of 0.25 seconds. That override is not published; other
+  Outlook views still need validation for missing controls.
 - `max_depth` read from
   `user.accessibility_query_max_depth`.
 
@@ -206,6 +208,7 @@ verified performance claims.
 
 | Track | Scope | Suggested first spike |
 |---|---|---|
+| [Debug incident recorder](../debug/README.md) | Opt-in bounded pre-error history, correlated reports, lifecycle and overhead safety | D1a capability/cost check before prototype |
 | [Highlighting](highlighting.md) | Editable validation, static text, substring bounds, matching | H1 voice validation; H2 lifecycle safety before promotion |
 | [Numbers and menus](numbers-and-menus.md) | Speed and grouping, app profiles, named sections, label handoff | N1/N2 timing baseline; N4/N8 grouping |
 | [Mouse AX controls](mouse-ax.md) | Hovered window, radius/directional numbers, background activation | M1 supported hit-testing and M2 geometry |

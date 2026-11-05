@@ -1666,3 +1666,898 @@ geometry, so a dirty branch may not be a sufficient invalidation boundary.
 Do not silently serve stale results or call an unverified diff API.
 
 **Rollback:** remove the session cache and use the validated full refresh.
+
+### N18. Stale or foreign `ui.active_menu()` and first-show failures
+
+**Priority:** High (user-visible breakage). **Status:** proposed, not executed.
+**Effort:** S per batch. Read-only REPL probes; no production change until the
+decision below. An unvalidated interim patch exists (see "Interim state").
+
+**Goal:** explain, with measurements, why `show numbers` fails or slows in
+Teams, Outlook and Slack when `ui.active_menu()` reports a frameless surface,
+and choose one generic rule (or none) that passes the regression gate.
+
+#### Recorded so far (2026-11-04, not yet a spike result)
+
+Measured:
+
+- 09:19 log, `main` at `8d2567d`: Slack retried 13 times and failed with
+  "The accessibility surface has no usable frame" (`_query_menu_controls` →
+  `_surface_clip`). Outlook failed with "Too many accessibility nodes while
+  locating a visible menu" (`_active_menu` → `visible_menu`).
+- REPL, VS Code frontmost: `ui.active_menu()` returned an `AXGroup` (not
+  `AXMenu`), frame height 0, 14 children, whose `AXTopLevelUIElement` is a
+  Teams window and whose `AXTopLevelUIElement.AXParent` is the Teams
+  `AXApplication`. Talon's `element.window` is unusable for ownership: it
+  returned an unrelated Teams Notification Center window for a VS Code
+  menu-bar element.
+- The same "no usable frame" error occurred on 2026-11-03 08:55 with code
+  from before `70644ee`, so the failure predates the Word changes.
+- With the interim patch, one probe each: Slack 156 targets, Outlook 5
+  (a Reminder window was focused), VS Code 162; no errors logged.
+- User report with the interim patch: Teams still fails; Outlook may be slower
+  than before; Slack and Word are fast.
+
+From code reading only (hypotheses to measure):
+
+- H1. `_active_menu` caches only a non-`None` resolution. When the reported
+  menu is frameless and `visible_menu` finds none, every 100 ms `_check_menu`
+  poll walks the whole focused window again. This may explain Outlook latency.
+- H2. The interim ownership check cannot help when the stale menu belongs to
+  the frontmost app itself (Teams numbering its own stale popup).
+- H3. Before `70644ee`, a frameless reported menu was queried directly;
+  `70644ee` added the window walk, which changes the Outlook symptom.
+
+#### Questions
+
+1. When does `ui.active_menu()` change and clear? Is it system-wide? Does an
+   Electron popup that collapses to zero height ever clear it?
+2. What exactly fails in Teams now (traceback, phase, timings)?
+3. Is H1 the cause of the Outlook delay? Measure time-to-labels and the number
+   of `visible_menu` walks per second, `main` versus interim patch.
+4. Is ownership readable for every reported-menu kind: menu-bar, context and
+   popup menus in Finder, Word, Outlook, Slack, Teams and VS Code?
+5. Is a zero-height, non-`AXMenu` reported surface ever a real open menu?
+
+#### Method
+
+- One isolated probe script outside `~/.talon/user` (not importable by Talon).
+  Record role, subrole, frame, child count, owning application name,
+  ancestry roles, and timings. Do not record window titles or text; Teams and
+  Outlook titles contain personal data.
+- Time `accessibility_show_application_numbers` to first labels or failure;
+  correlate with log tracebacks by timestamp.
+- Compare `main` and the interim patch on identical states. Switching code
+  versions changes the user's live Talon, so each switch is announced.
+- Batches, each approved before running:
+  - B1 (read-only): each app frontmost, no menu open, current stale state.
+  - B2: open and dismiss one context menu in Teams, then B1 again.
+  - B3: one open menu per app (menu bar and one context menu).
+  - B4: Teams quit and relaunch, first and second `show numbers`.
+
+#### Decision and exit criteria
+
+- A table of app × state × code version: reported menu identity and owner,
+  outcome (targets or error) and time-to-labels.
+- Teams' failure explained by a traceback or measurement, or reported as
+  unresolved.
+- Decide: (a) adopt the ownership rule; (b) a different generic rule, for
+  example ignoring a reported surface that is not an `AXMenu` and has no
+  usable frame, or caching an empty resolution (H1); (c) no change.
+- Regression gate: Slack, Word, Finder and VS Code give the same results before
+  and after. Any adopted rule gets unit tests built from the measured states.
+
+#### B1 result (2026-11-04 09:33, interim patch, read-only)
+
+Probe: `files/n18/b1_probe.py` in the session folder (not in this repository).
+Each app was brought frontmost with no menu open; `show numbers` was timed to
+first targets, then observed for 2 s. `visible_menu` calls were counted.
+The reported menu was the same in every row: an `AXGroup`, frame height 0,
+14 children, owned by Microsoft Teams.
+
+| App | Time to targets | Targets | `visible_menu` walks (total time) | Logged error |
+|---|---|---|---|---|
+| Teams | none in 4 s | 0 | 43 (5.49 s, max 0.18 s) | none |
+| Outlook | 2.41 s | 42 | 0 | none |
+| Slack | 0.34 s | 128 | 0 | none |
+| Word | 0.20 s | 90 | 0 | none |
+| VS Code | 0.50 s | 140 | 0 | none |
+| Finder | 0.16 s | 25 | 0 | none |
+
+Findings:
+
+- H2 confirmed: in Teams the stale surface is Teams' own, so the ownership
+  rule does not apply. The session numbers the zero-height group and shows
+  nothing, with no error or notification. This conflicts with principle 6
+  (surface errors).
+- H1 confirmed for Teams: with no resolvable menu, the window walk repeats on
+  every poll (43 walks, about 0.13 s each).
+- Outlook's 2.41 s is not caused by walks (0 calls). Its cause is unresolved;
+  phase timings are needed. There is no valid "before" baseline: `main` failed
+  in Outlook while the stale popup was reported.
+- The stale report persisted from at least 09:19 to 09:33 across app switches.
+
+#### Version comparison (2026-11-04 09:37-09:41, stale Teams surface present)
+
+The same B1 probe was run twice per version by swapping the five runtime files
+(`activation.py`, `application_session.py`, `controls.py`, `inventory.py`,
+`lib/labels.py`) and waiting for Talon to reload. Results were identical
+across both runs. `base` is `1b6e031`, before the 2026-11-03 commits; `main`
+is `8d2567d`; `interim` is `main` plus the uncommitted ownership patch. "Walks"
+counts `visible_menu` calls, which only exist from `70644ee` on.
+
+| App | base | main | interim |
+|---|---|---|---|
+| Teams | fails: no session, no log | fails: 0 targets, session kept, 45 walks (5.5 s), no log or notification | same as main |
+| Outlook | fails: no session, no log | fails: "Too many accessibility nodes" after 2 retries, 3 walks (2.4 s) | 42 targets in 2.35-2.43 s |
+| Slack | fails: "no usable frame" | fails: "no usable frame" after 17 retries, 30 walks (1.7 s) | 119 targets in 0.35 s |
+| Word | fails: no session, no log | fails: no session, 66 walks (0.75 s), no log | 90 targets in 0.21-0.22 s |
+| VS Code | fails: "no usable frame" | fails: "no usable frame" after 11 retries, 19 walks (1.8 s) | 137 targets in 0.51-0.52 s |
+| Finder | fails: no session, no log | fails: no session, 58 walks (2.5 s), no log | 25 targets in 0.19-0.20 s |
+
+"No session, no log": from code reading, both base and main take the
+zero-targets path, which stops the session and shows the notification "The
+active menu exposes no visible pressable controls" without logging. The
+notification itself was not captured.
+
+Findings:
+
+- With this stale surface, every app fails on base as well, so the
+  2026-11-03 commits did not cause the breakage.
+- What the 2026-11-03 commits changed while it is present:
+  - `70644ee` adds repeated full-window walks, 0.75-5.5 s of extra work per
+    attempt, and changes Outlook's failure to "Too many accessibility nodes".
+  - `8d2567d` retries the first scan (Slack 17, VS Code 11), so failures arrive
+    up to about 2 s later.
+  - Teams: main and interim keep a session with 0 targets and give no
+    feedback; base presumably notified (code reading, not captured). This
+    is a regression in feedback, not in outcome.
+- Outlook's about 2.4 s time-to-targets has no comparable baseline, because
+  base and main both fail in this state. It needs the clean-state comparison.
+
+#### B2 result (2026-11-04 09:44): native menu does not clear the stale surface
+
+The Teams menu-bar "View" menu was opened with `AXPress` and closed with Escape.
+While it was open, `ui.active_menu()` returned the real `AXMenu` (height 117,
+5 items, owned by Teams). After Escape, and again 3 s later, it returned the same
+stale `AXGroup` (height 0, 14 children, owned by Teams). Talon appears to keep a
+menu stack in which the stale popup was never popped. This is inferred, not
+documented. Opening a native menu is not a way to reset the state.
+
+#### B3 result (2026-11-04 09:50-09:56): quitting Teams leaves a dead entry
+
+Teams was quit normally (user-approved) and relaunched. After quitting, and
+again 25 s after relaunch, `ui.active_menu()` still returned a non-`None`
+element whose `AXRole` and `AXFrame` read as `None`: the stale popup's element,
+now dead. B1 on the interim patch in this state:
+
+| App | Outcome | Walks (time) | Log |
+|---|---|---|---|
+| Teams | 0 targets, session kept | 52 (4.8 s) | none |
+| Outlook | fails | 3 (2.5 s) | "Too many accessibility nodes" |
+| Slack | fails | 28 (1.7 s) | "no usable frame" after retries |
+| Word | fails | 63 (0.7 s) | none (zero-targets path) |
+| VS Code | fails | 17 (1.8 s) | "no usable frame" after retries |
+| Finder | fails | 58 (2.4 s) | none (zero-targets path) |
+
+Findings:
+
+- The interim ownership rule cannot attribute a dead element (it has no
+  readable ancestry), so the interim patch behaves like main in this state.
+  It is not a fix.
+- Talon does not clear its reported menu when the owning app quits, or when
+  a native menu opens and closes. Whether restarting Talon clears it is untested.
+- A clean-state comparison (Outlook latency, Teams baseline) has not been done.
+
+#### B4 result (2026-11-04 10:05-10:12): clean-state version comparison
+
+Talon was restarted (user-approved), and afterwards `ui.active_menu()` returned
+`None`. Restarting Talon is the only reset found so far. The B1 version
+comparison was then repeated, twice per version. In every row
+`ui.active_menu()` was `None`, and no version called `visible_menu`.
+
+| App | Targets (all versions) | base time to targets | main | interim |
+|---|---|---|---|---|
+| Teams | 100 | 0.60-0.64 s | 0.62-0.63 s | 0.62-0.63 s |
+| Outlook | 52 | 1.08-1.09 s | 1.09-1.14 s | 1.09 s |
+| Slack | 120 | 0.34-0.36 s | 0.35-0.36 s | 0.36 s |
+| Word | 90 | 0.21 s | 0.21-0.22 s | 0.22-0.23 s |
+| VS Code | 168 | 0.57 s | 0.59-0.63 s | 0.58-0.64 s |
+| Finder | 25 | 0.19 s | 0.19-0.20 s | 0.19-0.20 s |
+
+No errors or retries were logged in any version.
+
+Findings:
+
+- With no stale menu, the 2026-11-03 commits and the interim patch give the
+  same target counts as base, with times within run-to-run noise
+  (at most about 0.06 s). No regression was measured in this state.
+- Outlook is about 1.1 s in every version. The earlier 2.4 s was measured
+  with a different focused window (42 targets) while the stale surface was
+  present, so it is not comparable.
+- The user-visible failures today come entirely from the stale reported menu.
+  Every version fails while it is present; the 2026-11-03 commits only add
+  delay (walks and retries) and change the error text.
+
+#### Open questions after B4
+
+1. Which Teams surface produced the stale entry? It was an `AXGroup` at
+   (510, 872), 593 wide, with 14 children: possibly a compose or suggestion
+   popup. Reproduce it before designing a rule.
+2. Is a generic rule safe? Candidates, to evaluate against B1 and the
+   regression gate: treat a reported surface as absent when it is dead (no
+   role) or when it is not an `AXMenu` and has no usable frame; or cache an
+   empty resolution so `visible_menu` is not re-run on every poll. No rule
+   has been chosen.
+3. Should the interim ownership patch stay? It helped only while the stale
+   element was alive and owned by another app, and it does not handle the
+   dead element.
+
+#### B5 method (user-approved 2026-11-04 10:14): reproduce the stale Teams surface
+
+Goal: find which Teams surface leaves a frameless `AXGroup` in
+`ui.active_menu()` after it closes. The stale entry was at (510, 872),
+593 wide, with 14 children.
+
+Allowed actions: opening and dismissing Teams popups (buttons, menus,
+pickers), dismissed with Escape. No typing into compose boxes, no sending,
+and no changes to settings or messages.
+
+Steps:
+
+1. Start from a clean state (`ui.active_menu()` is `None` after the B4
+   restart).
+2. Read-only inventory of the focused Teams window: record the role,
+   description and frame of every button, and of anything near the stale
+   frame.
+3. For each candidate popup button, one at a time:
+   - record `active_menu` before;
+   - press the button (`AXPress`) and record `active_menu` after 1 s;
+   - press Escape and record `active_menu` after 1 s and again after 3 s.
+4. Stop at the first candidate that leaves a non-`None` entry after Escape,
+   and record its role, frame, child count and owner.
+
+Clearing a reproduced stale state needs a Talon restart, which needs user
+approval.
+
+#### B5 result (2026-11-04 10:15-10:35): not reproduced
+
+Started clean: `ui.active_menu()` was `None`. Raw results are in the session
+files `b5*.json`.
+
+| Surface | Reported while open | After Escape (1 s / 3 s) |
+|---|---|---|
+| Emoji, GIFs and Stickers | `AXMenu` (608, 703) 293x69, 4 children | `None` / `None` |
+| Attach files | `AXMenu` 290x273 (or 305x78) | `None` / `None` |
+| Actions and apps | `AXMenu` (818, 792) 310x**0**, 20 children; one later run 310x313 | `None` / `None` |
+| More chat options / More list options / New items / Settings and more | `AXMenu` with a real frame | `None` / `None` |
+| Chat-list item context menu (`AXShowMenu`) | `AXMenu` (163, 872) 150x**0**, 6 children | `None` / `None` |
+| Message right-click menu | `AXMenu` (531, 168) 176x451, 12 items | `None` |
+| Person mention, View more apps, Activity in other orgs, hovering messages, search box focus | `None` | `None` |
+
+Dismissing by switching apps (open the popup, focus Finder for 3 s, refocus
+Teams, then press Escape):
+
+- The open Teams `AXMenu` was still reported while Finder was frontmost, for
+  every popup that stayed open. This is a **live** menu owned by another app,
+  separate from the stale case. In that state show numbers in Finder would
+  target the Teams menu.
+- Escape cleared every entry. No stale entry appeared.
+
+`AXShowMenu` on arbitrary Teams elements (including the Send button with an
+empty compose box) opened nothing. The compose box was verified empty, and
+nothing was sent.
+
+Findings:
+
+1. The stale `AXGroup` was not reproduced by any button popup, context menu,
+   hover, search focus or app switch. Not yet tried, because they need typing
+   in the compose box or are outside the probe's control: @mention, emoji
+   `:` and `/` typeaheads; suggested-reply chips; notification toasts; and
+   hover cards.
+2. Teams reports **live, real** menus with height 0 (Actions and apps, chat-list
+   context menu). So "frameless means stale" is false even for the menu's
+   own app. A generic rule cannot treat zero height as dead; at most it can
+   apply to a non-`AXMenu` role or a dead element (no role).
+3. A real foreign menu (a popup left open in a background app) is a
+   reproducible case where the interim ownership check is correct behaviour.
+   It is independent of the stale entry.
+
+#### B5 addendum (2026-11-04 10:40): compose typeaheads in the self-chat (user-approved)
+
+Typed `@`, `@a`, `:sm` and `/` into the self-chat compose box. After each one:
+Escape, then select-all and delete. Return was never pressed. The run also
+included `@` followed by switching to Finder and back.
+
+- The `@` "Suggestions" popup opened visibly (confirmed by screenshot).
+- `ui.active_menu()` stayed `None` throughout, including while the popup was
+  open. Typeahead popups are not reported as menus at all.
+- The compose box was empty afterwards, and nothing was sent.
+
+Status: the stale `AXGroup` source is still unknown. Every user-triggerable
+Teams popup tested either reports a live `AXMenu` that clears on Escape, or is
+not reported at all. Remaining suspects need time or external events:
+notification or meeting-reminder toasts (a Teams toast window was visible
+bottom-right during B5), hover cards, and meeting-start surfaces.
+
+#### Interim state
+
+The interim patch (`controls.foreign_element` and its use in
+`ApplicationLabelSession._active_menu`, plus two tests in
+`tests/test_application_menu_scope.py`) is uncommitted and was applied
+before this spike. Keep it out of `main` until the decision above.
+
+**Rollback:** the probe is read-only; set the interim patch aside with
+`git stash` to return to `main`.
+
+### N18b. Observe active-menu lifecycle and test generic filtering
+
+**Status:** approved to observe and design; no production change approved.
+**Scope:** continue N18 without changing app state or writing to production
+files. Any implementation decision requires measured evidence and a separate
+user approval.
+
+#### Evidence carried forward
+
+- B1-B4 show the failure occurs with a stale system-wide menu report. A
+  foreign live menu is also reported while its owner app is in the background.
+- B5 did not reproduce the original `AXGroup` after opening and dismissing
+  Teams menus, list and message context menus, popovers, search focus,
+  typeaheads, hover attempts, and app switches.
+- A live `AXMenu` with a zero-height frame is possible. Height alone cannot
+  be used to call a menu stale.
+- The interim foreign-owner check helps only while an owner can be determined;
+  it does not handle a dead AX element. It remains uncommitted.
+
+#### B6 method: read-only passive watcher (approved 2026-11-04)
+
+Run the isolated Talon REPL probe
+`files/n18/watch_active_menu.py` during ordinary use, for at most 8 hours.
+It samples every 250 ms and writes a JSONL record only when the signature
+changes, plus start/stop/error records. The signature contains only the
+active app bundle identifier and the reported menu's role, subrole, frame,
+child count and owner bundle identifier. It must not capture window titles,
+AX text, or message content. Stop by creating the adjacent
+`active-menu-watch.stop` sentinel file; the watcher also stops at the
+8-hour limit. If a stale signature reappears, stop collecting and report the
+timestamp and sanitized record before any further test or reset.
+
+The watcher does not control the UI. Do not trigger menus, type, send, or
+modify anything while it runs; use the machine normally. It is intentionally
+outside the Talon user-script tree and repository runtime.
+
+#### N18b design: candidate generic behavior (not yet selected)
+
+Candidates to test, not implementation instructions:
+
+1. Ignore an `active_menu` whose owner is a different app from the focused
+   app. Retain the focused app's normal window scan/label path.
+2. Treat a dead element (no AX role) as absent. Evaluate ignoring other
+   roles such as `AXGroup` separately; live custom popups may not be
+   `AXMenu`, and B5's zero-height menus establish that frame height is not a
+   safe discriminator.
+3. If a focused-window search finds no visible replacement, avoid repeating
+   the full-window search on every 100 ms poll. Any cache must be scoped to
+   the menu/window state and have a measured invalidation signal; stale
+   results must not hide a newly opened menu.
+
+#### Validation and exit criteria
+
+- If B6 captures the original stale signature, preserve the sanitized record
+  and correlate it with the user's activity; do not infer its source from
+  timing alone.
+- For each candidate rule, use focused tests for dead elements, same-app
+  menus, foreign live menus, non-`AXMenu` live surfaces, and transitions
+  between no menu/open/closed. Add unit tests for the observed cases.
+- Any production candidate must preserve the baseline behavior and target
+  counts in Teams, Outlook, Slack, Word, VS Code and Finder, and must not add
+  silent zero-target success. Live tests remain for the user to run on the
+  other machine where needed.
+- Record a decision (adopt, revise, or no change) before editing production
+  code. The spike is not complete until the user approves that decision.
+
+#### B6 monitoring correction (2026-11-04 14:33)
+
+The original REPL-created `cron.interval` never invoked its callback (verified
+poll count: zero). Its startup record did not prove monitoring was running.
+No menu history was captured between its startup and this correction.
+The official noninteractive REPL also waits for EOF before executing input, so
+a persistent stdin pipe is not a working driver. Use bounded one-shot REPL
+calls instead: keep the probe module in `sys.modules` and explicitly sample
+once per second (plus REPL overhead). Verify that the sample count and
+last-sample timestamp advance after launch. This can miss shorter-lived
+popups, but captures a persistent stale state. The same stop sentinel and
+eight-hour limit apply.
+
+### N18c. Outlook first-label latency: phase measurements
+
+**Status:** investigation requested 2026-11-04; measurement only, no production
+optimization selected. Goal: explain the approximately 1.1-1.2 s clean-state
+latency before proposing a change.
+
+#### B7 method
+
+- Use the current focused Outlook window with no menu reported. Do not select
+  mail, type, send, or change settings. Focus Outlook, show/hide numbers three
+  times, then restore the originally focused app.
+- Isolated REPL probe `files/n18/profile_outlook.py`: temporarily wrap the
+  existing activation, AX query, filtering, signature, label construction and
+  rendering functions with timers, restoring every function in `finally`.
+- Record counts, phase durations and target counts only. No AX text or window
+  titles. Nested phase times are inclusive, so do not sum them as disjoint work.
+- Compare first and repeat runs. Attribute latency to measured phases before
+  designing an optimization; validate any candidate with unchanged target
+  counts and the six-app regression gate before production edits.
+
+#### B7 result (2026-11-04 14:35): query dominates
+
+Three runs, 40 targets each:
+
+| Phase (inclusive) | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Show-numbers action return | 1.092 s | 1.094 s | 1.079 s |
+| `axquery.query_all` | 1.009 s | 1.011 s | 1.002 s |
+| Control collection, including query and filtering | 1.054 s | 1.056 s | 1.046 s |
+| Signature | 0.006 s | 0.005 s | 0.005 s |
+| Label construction | 0.004 s | 0.004 s | 0.005 s |
+| Render call | 0.021 s | 0.023 s | 0.019 s |
+
+Activation took about 1-3 ms; active-menu checks were negligible. Each query
+returned 485-497 candidates for filtering. Timing wrappers add overhead and
+action return is not a screen-presentation timestamp, but the query accounts
+for approximately 92-93% of the measured action time.
+
+Next measurement: determine whether the near-one-second duration tracks the
+configured query timeout or completed traversal. Do not lower production
+timeouts as an optimization without proving completeness: unchanged counts
+alone do not establish that the same controls were returned.
+
+#### B8 method: direct query timeout comparison
+
+Use the same focused Outlook window and the same query, visibility option and
+depth as the production baseline, passing explicit timeout arguments of
+1, 0.25, 0.5, 2, 4 and 1 seconds to `axquery.query_all`. No settings changes
+or production-function replacements. Record query duration, candidate and
+filtered-target counts, and missing/extra target identities relative to the
+first run using AX element equality in memory. Persist no AX text. This
+determines whether the query finishes early or consumes each given budget;
+it does not itself establish a safe production timeout.
+
+#### B8 result (2026-11-04 14:36): query consumes the entire budget
+
+| Timeout | Query duration | Candidates | Filtered targets | Missing / extra vs first run |
+|---|---|---|---|---|
+| 1 s | 1.004 s | 497 | 40 | 0 / 0 |
+| 0.25 s | 0.251 s | 201 | 40 | 0 / 0 |
+| 0.5 s | 0.501 s | 341 | 40 | 0 / 0 |
+| 2 s | 2.013 s | 741 | 40 | 0 / 0 |
+| 4 s | 4.015 s | 1061 | 40 | 0 / 0 |
+| 1 s (repeat) | 1.002 s | 513 | 40 | 0 / 0 |
+
+This window consumes every query budget, including 4 seconds; it does not
+finish traversal within those limits. Additional candidates yield no additional
+numbered controls in this sample, and all 40 target identities match across
+runs. This explains the baseline's approximately one-second query delay but
+does not identify why traversal continues (for example repeated AX nodes,
+large or changing subtrees, or provider behavior).
+
+Do not lower the production timeout based on one window. Next spike candidate:
+measure which subtree supplies the additional candidates and whether they
+repeat, using sanitized structural data; then evaluate an app-independent
+query-scope or deduplication approach against other Outlook views and the
+six-app gate. An incremental first-label strategy is another candidate only
+if it can preserve numbering and include all intended controls.
+
+B6 watcher readiness was verified separately: poll counts advanced from 7 to
+9 across two seconds, and the log captured Outlook becoming frontmost during
+B8. Monitoring is now active; earlier startup records are not observation
+history.
+
+#### Outlook override decision (2026-11-04 14:40)
+
+The user requested an app-specific lower query budget based on B7-B8. Add a
+provisional macOS Outlook setting of 0.25 seconds in
+`application_controls/inventory_outlook.talon`, using the existing query-timeout
+setting without changing traversal or other applications' budgets.
+
+B8 found the same 40 target identities at 0.25 and 1-4 seconds in the tested
+window. This is not a completeness guarantee for other Outlook windows.
+Validate the actual show-numbers action after loading the override, then have
+the user check other Outlook views for missing controls. Roll back by removing
+this isolated override if it truncates required controls; do not silently
+compensate with unrelated traversal changes.
+
+Live verification after Talon loaded the override: three actual show-numbers
+runs took 0.330, 0.332 and 0.332 seconds, with 40 targets each; query durations
+were 0.251-0.253 seconds. The focused app was restored afterwards. The new
+Talon file passes `scripts/lint_talon.mjs`; other Outlook views remain for
+manual validation.
+
+#### B9 result (2026-11-04 14:44): lower budget does not bound wall time
+
+The user reported that Outlook felt slow again. Recent Talon watchdog stacks
+at 14:42 show both initial show-numbers and event-driven refresh calls inside
+`axquery.query_all`, including Talon's visibility/AX attribute paths. One
+refresh was still running at the watchdog's six-second mark.
+
+Repeated B7 with the actual timeout argument recorded:
+
+| Run | Action return | `query_all` duration | Passed timeout | Targets |
+|---|---|---|---|---|
+| 1 | 2.987 s | 2.929 s | 0.25 s | 40 |
+| 2 | 2.902 s | 2.845 s | 0.25 s | 40 |
+| 3 | 3.062 s | 2.995 s | 0.25 s | 40 |
+
+The override is taking effect, but the query's timeout is not a hard wall-time
+limit for the complete operation in this state. The earlier approximately
+0.33-second measurements were real but not stable. The reason for the change
+in query behavior is unresolved; the stack samples alone do not establish
+which internal phase exceeds the budget. Do not promise that reducing the
+timeout fixes this latency. Keep the existing provisional override unchanged
+pending a measured follow-up; no further production patch was made.
+
+#### B10 method: visibility pruning after visiting People
+
+The user reports that the slowness persists after returning from Contacts/People
+to Mail. This suggests persistent provider/tree state, but causality has not
+been established by a controlled before/after reproduction.
+
+Read-only probe of the current Mail window: alternate `visible_only=True`
+and `False` twice, keeping the query, root, depth and 0.25-second budget fixed.
+For the latter, use the existing frame-overlap filtering mechanism in memory,
+without changing settings or production functions. Record timings, counts and
+missing/extra AX target identities relative to the first baseline. This tests
+whether Talon's visibility pruning contributes to the overrun; equivalent
+counts or identity sets alone do not prove equivalent visibility or ordering.
+No Outlook navigation, message changes, restart or production edits.
+
+#### B10 result: disabling visibility pruning does not remove the delay
+
+The alternating query durations were 2.808 s (visibility pruning), 2.869 s
+(no pruning), 2.932 s (pruning), and 2.865 s (no pruning). All four returned
+40 candidates and the same 40 filtered target identities. The timeout argument
+remained 0.25 seconds.
+
+Visibility pruning is therefore not sufficient to explain the delay in the
+current state. Do not enable frame clipping as a latency fix on this evidence.
+Compared with B8's hundreds of candidates, the current query exposes a
+different candidate pattern, but the reason remains unresolved. A controlled
+Mail -> People -> Mail comparison needs a known fast starting state; restoring
+that state might require an Outlook restart, which has not been approved.
+
+#### B11 result (2026-11-04 14:49): after the user's Outlook restart
+
+The user restarted Outlook and still observed slowness. Repeated the actual
+show-numbers phase probe: total durations 2.184, 2.186 and 2.188 seconds;
+query durations 2.142, 2.137 and 2.138 seconds. Each attempt passed timeout
+0.25 seconds, made exactly one `query_all` call, and returned 29 targets.
+No instrumented function raised an exception. The current view's target
+count differs from B9, so these are not identical-window comparisons.
+
+The override is active. These attempts do not use our AttributeError query
+retry or failed-first-scan retry paths; the delay is inside one successful
+Talon query call. Whether Talon internally retries or performs work outside
+its timeout remains unresolved. The user's restart did not restore the fast
+state, so visiting People is not yet a sufficient causal explanation.
+
+#### B12 diagnosis (2026-11-05 10:04): persistent missing roles and a tree cycle
+
+User approved read-only Outlook queries while it remained broken. No mail was
+selected, changed, deleted or sent. The initial probe focused Outlook and
+restored the previously active app; subsequent probes queried its existing AX
+window without navigation. Scripts/results are in session `files/n18/`:
+`outlook_failure.py`, `outlook_branch.py`, and `outlook_confirm.py`.
+
+**Reproduced failure:**
+
+- Whole-window production query failed with `AttributeError: AXRole` in
+  1.77 s. Disabling visibility pruning and removing the position predicate
+  still failed. Even `[AXRole]` alone failed.
+- Branch isolation located an `AXUnknown` below the main `AXSplitGroup`,
+  containing two children with persistently missing roles. Three independent
+  production-selector queries rooted at that parent all failed in under
+  1 ms. Sibling branches queried successfully in the bounded probe; successful
+  timeout-limited queries are not proof those branches are complete.
+- Both children advertise `AXRole` among their attributes and expose nonzero
+  frames (23.5x22 and 53x18), other attributes and no actions. Three repeated
+  `.get("AXRole")` reads returned `None`; direct `.AXRole` access raises
+  `AttributeError: AXRole`.
+- This isolates a repeatable provider/bridge data incompatibility with Talon's
+  matcher, not merely a hypothesized element vanishing during traversal.
+  Which layer is responsible for the absent role remains unproven.
+- The production retry repeats the same failing query; it cannot repair this
+  persistent state and adds another traversal's delay.
+
+**Separate structural latency finding:**
+
+- The title-bar `AXGroup` has four children. Its `AXTextField` child's own
+  `AXChildren[0]` compares equal to itself: a confirmed self-cycle.
+- A bounded, ancestor-equality-aware walk finishes after six visits including
+  the repeated node. Talon's `[AXRole]` query on that small branch returned
+  514 matches in a 0.05-second budget. The production selector on the same
+  branch consumed its 0.25-second budget and returned three matches.
+- This establishes a cyclic source tree and repeated query results, explaining
+  why a tiny branch can keep traversal busy until a budget is exhausted. It
+  does not explain every earlier wall-time overrun or prove the rest of the
+  window is cycle-free.
+
+**Implications / next decision:** a lower timeout cannot fix the persistent
+missing-role exception. Do not retry more, silently drop the entire failing
+branch, or hard-code these child indices into production. Evaluate supported
+Talon query options/fixes first, then a separately approved generic cycle-safe,
+missing-role-tolerant collection experiment if needed. Such an experiment must
+preserve siblings/descendants of invalid nodes, visibility, ordering and target
+coverage and explicitly report partial/invalid data. No production fix applied.
+
+**Correction to earlier hypotheses:** a missing role alone does not establish
+that an AX object is dead; these role-less children retain other readable
+attributes and frames. Do not promote N18b's no-role filtering candidate as a
+proven dead-element test on this evidence.
+
+#### B13 experiment: generic resilient structural walk (approved 2026-11-05)
+
+Isolated session scripts only, no production replacement. Reuse existing
+`controls._add_control` eligibility logic after traversal. The diagnostic
+inventory's Python `id()` deduplication is not sufficient for AX wrappers
+that compare equal but are distinct Python objects; use AX equality in this
+experiment, measure its cost, and do not assume it scales.
+
+Prototype a bounded depth-first walk with equality-based repeat detection,
+explicit missing-role/read-error diagnostics, and continued traversal into
+readable children of malformed nodes. Limits: 5,000 nodes or five seconds
+between calls; a blocking AX read can exceed the time limit. Do not equate
+`AXUnknown` with invalid: it is a legitimate role; missing-role nodes are
+separately reported. Do not activate role-less pressable elements by guessing
+their type. An incomplete traversal must be marked partial.
+
+First validate equal-but-distinct wrappers, self-cycles, shared descendants,
+missing/throwing role reads, preservation of descendants/siblings, bounds and
+unexpected-error propagation with isolated unit tests. Then run read-only
+structural comparisons in Outlook and the other running regression apps:
+record unique visits, anomalies, elapsed time, production eligibility and
+baseline-query differences. No full content capture, clicking or mail changes.
+
+This is not yet a replacement visibility algorithm. Window-overlap candidates
+are diagnostic only: baseline target order/coverage, nested scrolling, hidden
+content, menus and app-specific query settings must be validated before any
+promotion. A resilient walk may encounter additional invalid data and must
+report it rather than claim complete success.
+
+#### B13 result (2026-11-05): structural resilience proven, promotion gate failed
+
+Six isolated unit tests passed: equality-based cycle handling, missing and
+throwing roles with descendants preserved, shared-node deduplication, explicit
+node-limit truncation, and unexpected-error propagation.
+
+Read-only live run across all six apps, original app restored afterwards:
+
+| App | Unique nodes | Walk time | Missing-role / repeated elements | Overlap candidates | Baseline targets | Missing / extra vs baseline |
+|---|---|---|---|---|---|---|
+| Outlook | 2179 | 2.742 s | 2 / 1 | 101 | query fails `AttributeError` | unavailable |
+| Slack | 828 | 0.174 s | 0 / 0 | 170 | 168 | 0 / 2 |
+| Teams | 604 | 0.144 s | 0 / 0 | 68 | 68 | 0 / 0 |
+| Word | 147 | 0.054 s | 0 / 0 | 89 | 92 | 6 / 3 |
+| VS Code | 997 | 0.209 s | 0 / 0 | 316 | 143 | 0 / 173 |
+| Finder | 161 | 0.070 s | 0 / 0 | 28 | 15 | 0 / 13 |
+
+No walk reached its limits or recorded attribute-read exceptions. Missing
+roles were explicit anomalies, not silently counted as valid controls.
+Timings are single structural walks, excluding later control filtering; they
+are not end-to-end label latencies. Outlook's baseline failed again after
+the production one-time retry (3.356 s).
+
+Candidate ordering differed from the baseline in every comparable app,
+including Teams where sets matched exactly. These are sequential live
+comparisons, not immutable fixtures; differences must be investigated, not
+automatically attributed to a traversal bug. Frame overlap alone does not
+replicate native visibility, web-area ownership or the query's selection/order.
+
+**Decision:** retain the experiment only; do not promote. The same generic
+walk handled all six applications, and Outlook's missing roles did not
+prevent reaching its other controls. However, Word coverage and cross-app
+visibility/ordering gates fail. It is not yet a correct replacement or a
+demonstrated end-to-end speed improvement.
+
+**Next bounded experiment:** establish Talon's supported traversal/matcher and
+visibility contracts, seeking a way to retain them while tolerating invalid
+nodes and cycles. If no supported hook exists, record the upstream limitation
+before considering a custom collector. Compare immutable fake-tree ordering
+and targeted live visibility fixtures; do not add application exceptions or
+promote the 101 unvalidated Outlook candidates as correct numbers.
+
+**Responsibility:** the immediate `AXRole` exception originates in Talon's
+matcher while consuming malformed role data. Our integration's retry/stop
+policy turns that into complete loss of labels; robustness is therefore also
+an integration concern. The origin of the malformed AX data (Outlook versus
+the bridge) remains unknown. `AXUnknown` itself is not an error and must not
+be globally excluded.
+
+#### B14 method: two-worker Talon branch-query experiment
+
+User approved bounded concurrent AX-call risk on 2026-11-05. This tests query
+discovery, not concurrent control activation. Supported `axquery.query_all`
+remains the collector; no custom descendant walk. Concurrency safety is not
+established by the API signature and this is not production authorization.
+
+Use the current Outlook window's immediate `AXChildren` as fixed branch roots.
+Begin with two leaf queries; stop if they error or stall. Compare whole-window,
+sequential branches and two-worker branches twice each in order
+whole/sequential/parallel/parallel/sequential/whole. Same selector, visibility,
+unlimited depth and 0.25-second per-query argument throughout. No retry.
+
+Record query start/end/thread IDs, wall durations, errors and unique-result
+sets/order. Merge parallel results in branch order, not completion order.
+Separate partial branch results from success; a failed branch remains omitted,
+so surviving controls do not establish completeness. Branch roots themselves
+may not be included by queries, and branch-local visibility can differ from
+whole-window visibility. This is a query experiment, not final numbered output.
+
+Wait bounds are ten seconds for leaf checks and twenty for branch batches;
+Python cannot cancel an already-running AX call. A stall therefore stops
+submission and is reported, not called safely interrupted. Restore original
+focus and shut down the two-worker executor. No clicks, selection, mail
+changes or production monkey patches.
+
+**Decision gate:** repeated sequential/parallel sets, errors and merge ordering
+must agree before interpreting performance. Overlapping Python call intervals
+alone do not prove native parallelism; compare elapsed wall time and report
+speedup without claiming provider internals. Even a speedup requires separate
+multi-app safety and coverage validation before adoption.
+
+#### B14 result: limited overlap, failure isolation but incomplete coverage
+
+| Mode | Run 1 wall time | Run 2 wall time | Unique query results | Error |
+|---|---|---|---|---|
+| Whole window, no retry | 1.649 s | 1.622 s | none returned | `AttributeError: AXRole` |
+| Sequential 11 child branches | 1.792 s | 1.764 s | 22, partial | branch 7 `AXRole` |
+| Same branches, two workers | 1.593 s | 1.617 s | 22, partial | branch 7 `AXRole` |
+
+Both parallel runs used two distinct worker threads. Title-bar and failing
+main-content branch query intervals overlapped by 0.245 and 0.249 seconds.
+Sequential mean 1.778 s versus parallel mean 1.605 s is about 1.11x speedup
+(9.7% less elapsed time), for this small two-repeat sample. This supports
+overlapping query calls/useful wall-time overlap, not a claim that every
+internal AX request is serviced concurrently. The slowest branch dominates.
+Parallel branches did not beat the whole-window call's time materially.
+
+All four branch runs returned the same 22 unique AX identities in the same
+branch-merge order, with the same failing branch. Branch isolation preserves
+other branches' results, but the main-content branch still fails and all its
+results are absent. These are query matches, not 22 validated complete
+numbered controls: roots may be excluded and final eligibility/visibility
+coverage remains unverified. It does not fix Outlook numbering.
+
+The initial leaf checks completed without error but were fast enough to use
+only one worker; they alone do not prove concurrency. Talon warned that
+user-created threads have no automatic resource tracking/autoreload support.
+Explicit executor shutdown was followed by an independent check: no
+`n18-query` workers remained. No mail or production runtime files changed.
+
+**Decision:** retain as measured experimental evidence; do not adopt threading.
+Available Talon queries can execute from two workers in this bounded run,
+but safety across reloads/provider mutation is unproven and the benefit is
+small. Next correctness question is isolating the invalid subbranch with
+supported queries while preserving all valid descendants and query semantics;
+more threads do not solve the missing-role error.
+
+#### B15 method: query-first recursive failure isolation
+
+User approved on 2026-11-05. Session-only experiment uses Talon's existing
+query API and no matcher patch: attempt the standard whole-window query,
+subdivide only roots that raise `AttributeError: AXRole`, retain successful
+branch results, and deduplicate by AX equality. Other exceptions propagate.
+Limit recovery to 32 calls, depth 16 and 20 seconds between calls; blocking
+AX calls remain non-interruptible. Repeated recovery branch roots are skipped
+and reported. Successful Talon queries still own their internal cycle behavior.
+
+Queries omit their roots in the earlier probes, so subdivided branch roots
+with AXPosition/AXPress must be evaluated separately. Their native visibility
+and placement in Talon's ordering are not established: explicitly flag that
+uncertainty. Missing-role roots are reported and their readable descendants
+are still queried. Structural completion is not a completeness/visibility
+guarantee, and results with invalid data are not called fully recovered.
+
+Run standard/isolation/isolation/standard in Outlook, Slack and Finder using
+the app's actual budget, depth and clipping options. Standard timings here
+exclude the production AttributeError retry to isolate collector overhead.
+Compare filtered identities/order for successful cases and stable recovered
+sets for Outlook; no control activation. Unit-test successful fast path,
+siblings/root preservation, cycles, bounds, failed leaves and unexpected
+exceptions. No production replacement or new concurrency.
+
+#### B15 result: recovery possible, but slow and not visibility-validated
+
+Six isolated unit tests passed. Live standard/isolation/isolation/standard:
+
+| App | Standard query + filter | Isolation query + filter | Filtered candidates |
+|---|---|---|---|
+| Outlook | fails in 1.65 / 1.70 s | 8.45 / 8.49 s | 60, same identities/order in both recovery runs |
+| Slack | 0.232 / 0.185 s | 0.200 / 0.202 s | 164, identical identities/order in all four runs |
+| Finder | 0.176 / 0.120 s | 0.118 / 0.116 s | 19, identical identities/order in all four runs |
+
+Healthy apps take the unchanged one-query path. Timing variation is not a
+demonstrated speedup; this experiment tests recovery correctness/overhead.
+Outlook recovery made 30 queries per run, isolating the same two role-less
+children. It obtained results from valid siblings and deeper branches that
+the whole-window query loses. Repeated failed ancestor queries account for
+much of its cost.
+
+No experiment traversal limit was reached. However, each successful Talon
+query still has a timeout and unverified internal cycle behavior. The 60
+Outlook candidates are not a proven complete/visible numbering inventory:
+manually included branch roots bypass Talon's pruning, and resetting query
+roots can change ancestor visibility and ordering. Comparing two recovery
+runs proves stability here, not equivalence to a successful reference.
+
+**Decision:** recovery using Talon's queries is feasible, but this fallback
+is not ready for production: approximately 8.5 seconds and unresolved
+visibility/completeness. No threading, matcher patch, mail modification or
+live collector change. Next work should establish a supported way to retain
+Talon's matching/pruning semantics while skipping invalid nodes, or validate
+branch-root visibility before optimizing recursive isolation. Do not mask
+partial results as full recovery.
+
+**API boundary:** `query_all` and `query` signatures expose selector/root/
+visibility/depth/timeout, no callback. Runtime inspection also exposes an
+executor with `query_iter`, `match_element`, `prune_visible` and other methods;
+their presence does not establish a supported override contract. A runtime
+monkey patch is technically conceivable but would affect Talon implementation
+details and potentially other consumers. No such patch was tested or adopted.
+
+### N19. Slack numbering disappears after channel selection, touch and scroll
+
+**Status:** incident investigation, 2026-11-05; no production fix selected.
+
+User sequence: select a Slack channel by number, `touch`, scroll, refresh
+numbers. Labels disappeared and subsequent show attempts failed; clicking
+the Slack window restored numbering. A download-complete notice and a
+thread's unread-reply badge were present.
+
+#### Initial evidence
+
+- 09:18:27.601: numbering activation targeted Slack.
+- 09:18:51.743 and 09:19:01.157: activation targeted Notes. Both attempts
+  repeatedly failed with `Notes does not expose an AXFocusedWindow attribute`,
+  ending with logged query errors at 09:18:53.785 and 09:19:03.238.
+- 09:19:23.414: activation targeted Slack again.
+- No Slack query exception was found in that interval. Silent lifecycle stops
+  and zero-target notifications are not fully represented by these logs.
+- Installed Community `plugin/mouse/mouse.talon`: `touch` cancels zoom and
+  performs a left click at the pointer; it does not explicitly focus Slack.
+- Read-only inspection after recovery: Slack was active with a focused AX
+  window; Notes was running without a focused AX window; no active menu.
+
+The failed show attempts demonstrably targeted Notes, not Slack. This supports
+an unintended app-focus change but does not establish that `touch` caused it
+or explain the initial refresh disappearance. Download notice / unread badge
+involvement is unproven. Do not patch Slack traversal based on those hypotheses.
+
+User clarification (09:27): the pointer was over Slack and Notes was not
+visible. Do not interpret the logged owner as proof of actual foreground
+focus or an accidental click on Notes. The code obtains its owner from
+`ui.active_app()` after hiding labels and stopping the prior session. Thus
+Notes was the reported app at that point, but there is no recorded independent
+OS-focus check, visible-window inventory, pointer hit test, or before/after
+label-hide observation. A stale/incorrect reported app or a focus transition
+during label cleanup remains a hypothesis, not a finding.
+
+#### Follow-up validation
+
+Confirm that the timestamps match the reported incident. For a recurrence,
+capture sanitized active-app bundle, pointer position and hit-tested owning
+app, focused-window availability, reported-menu role/frame, and current
+numbering-session owner before/after selection, touch, scroll and refresh.
+Do not capture message content. Start with read-only observation; recreating
+downloads or selecting another channel requires an agreed fixture.
+
+Distinguish app-focus changes, missing focused window, empty targets and stale
+menus. Verify whether refresh stops because the focused app differs from the
+session owner. Only propose a generic change after that transition is measured;
+preserve the focused-app-only rule and test normal focus switching, same-app
+refresh, and explicit error/notification behavior.
+
+**Diagnostic implementation spike:** [D1 in the debug directory](../debug/README.md).
+The user confirmed the error timestamps match and could not reproduce the
+failure (new-message notification was not reproduced). D1 therefore captures
+bounded pre-incident context rather than relying on failure-only snapshots.
+No navigation fix is selected by that diagnostic design.

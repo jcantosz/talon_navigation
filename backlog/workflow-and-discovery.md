@@ -129,3 +129,128 @@ Community provides `talon open log`, `talon open rebel` (REPL), and
 
 **Evidence:** registry command values (`CommandImpl.rule`), not just opaque
 registry keys, were inspected; no lifecycle actions were invoked.
+
+## W10. Identify and scroll a selected application pane
+
+**Status:** proposed spike, requested 2026-11-04; not implemented or validated.
+**Effort:** S discovery, then a separately approved bounded live prototype.
+**Related:** W5/W6 command reuse; [N8 grouping](numbers-and-menus.md) for
+presentation only. Discovery does not depend on implementing general grouping.
+
+**Goal:** target a visible scrollable pane, such as a channel list or message
+history, without moving keyboard focus or accidentally scrolling its neighbor.
+Use app-independent discovery and supported Talon/Community actions; no
+application-name branches, native AX callbacks, or production background polling.
+
+### Questions and prior-art check
+
+1. What installed Community, AxKit, and repository actions already support
+   scroll-area discovery, AX scrolling, or pointer-directed scrolling? Inspect
+   their actual contracts and active grammar before adding an action or alias.
+2. Which visible panes expose `AXScrollArea`, `AXScrollBar`, directional
+   actions, or another reliable scrollability signal? A large group/frame or
+   a scroll-to-visible action alone does not establish that it is scrollable.
+3. Can native/web wrapper duplicates be collapsed without merging independently
+   scrollable nested regions? Can offscreen, covered and collapsed panes be
+   excluded without dropping real regions?
+4. Can a safe pointer point be verified inside the intended pane, accounting
+   for overlays and nested children? A rectangle center alone is insufficient.
+
+### B1. Read-only region inventory
+
+Use an isolated REPL probe outside the production import tree. Scope discovery
+to the focused application's focused window; inspect supported roles, actions,
+frames, parent/child relationships and scrollbar metadata. Bound traversal by
+time and node count; report truncation and errors explicitly, never as a
+complete empty inventory.
+
+Capture only sanitized structural metadata and timings; do not persist message,
+mail or contact content, window titles, or account details. Establish an
+in-memory expected region list with the user for each fixture:
+
+| App / fixture | Required independently targeted regions |
+|---|---|
+| Slack, channel with enough content | Channel/sidebar list; conversation history |
+| Teams, chat with enough content | Chat/channel list; conversation history |
+| Outlook, Mail | Folder list; message list; reading pane where independently scrollable |
+| Outlook, People | Contact list; details pane where independently scrollable |
+| Finder, long list | Native list scroll area (non-messaging regression fixture) |
+| A fixture above with nesting/overlay | Nested scroll container and a covered or partially visible pane |
+
+Record absent/short/non-scrollable regions as such; do not invent a successful
+test where the fixture cannot move. Cold/warm discovery timings: three repeats
+per fixture, counts and required-region coverage. Initial usability target:
+discovery under 1 second; report overruns rather than cutting coverage to pass.
+
+### B2. Bounded scrolling prototype (approval required before movement)
+
+First present B1's inventory and the proposed command/selection behavior.
+Candidate grammar, not registered commands: `show scroll areas`, then
+`scroll area <number> up/down`. Persistent selection, semantic pane aliases,
+horizontal scrolling and continuous scrolling are out of scope unless
+separately approved. Check collisions with existing numbers/scroll commands.
+
+Prototype one bounded vertical step using an exposed directional AX action
+only if its behavior is verified. Otherwise evaluate an existing supported
+pointer-scroll action at a verified hit-tested point inside the target.
+Never click to focus, drag a scrollbar, select an item, or send a key to an
+unverified focus target as a fallback. Reject ambiguous/covered/unreachable
+regions with a visible explanation rather than scrolling a guessed pane.
+
+For pointer scrolling, preserve the original pointer and restore it in
+`finally`; abort on app/window changes. If the user moves the pointer during
+the operation, do not fight that movement with an unconditional restoration.
+Revalidate the selected region immediately before the action; do not reuse an
+old numbered element after refresh/window changes.
+
+### Validation matrix and measurable gates
+
+For each independently scrollable required region in B1:
+
+- Test both directions from the middle and at the top/bottom boundaries, three
+  repetitions per direction. Record requested action, actual target movement,
+  neighboring-pane movement, latency, and errors.
+- Verify movement with before/after scroll values or visible-child geometry;
+  if these are unavailable, use user-confirmed visual evidence. An action
+  returning successfully does not prove that the correct pane scrolled.
+- At a boundary, verify no scroll chaining into an ancestor or adjacent pane.
+  If safe behavior cannot be established, mark that region/backend unsupported.
+- Confirm keyboard focus, selected chat/message/contact, active app/window and
+  pointer are unchanged, except for intentional viewport movement. Stop on any
+  selection, message mutation or unexpected navigation.
+- Repeat after resizing, opening/dismissing an overlay, replacing a view,
+  switching windows/apps, and hiding/reopening region labels. Old numbers must
+  be invalidated; covered/removed targets must fail clearly without movement.
+- A nested target must scroll independently; targeting its parent must not
+  silently scroll the child instead. Include partially visible and duplicate
+  wrapper fixtures and a window with no scrollable content.
+
+**Pass:** every user-marked required region is either correctly identified and
+scrollable in both directions, or explicitly documented as unsupported with
+evidence. Supported cases have zero wrong-pane scrolls or selection/focus
+changes across the matrix. Missing required regions cannot be called full
+cross-app success. Report per-app/backend limitations and cold/warm timing,
+not just an aggregate success percentage.
+
+**Automated tests if implementation is selected:** structural discovery and
+duplicate/nested-region handling; visibility and ambiguous hit tests; stale
+region/window identity rejection; direction mapping and boundary behavior;
+pointer restoration on success/error and user movement; explicit failures;
+label/grammar lifecycle cleanup. Mock tests do not substitute for the live
+matrix. Check existing application-number commands and ordinary scrolling for
+unchanged behavior.
+
+### Decision, cleanup and rollback
+
+Record a per-fixture evidence table and choose reuse, a minimal generic
+implementation, narrower documented support, or no change. Obtain user
+approval before promoting the prototype. Do not silently add app-specific
+adapters or claim semantic names work when AX labels are missing/ambiguous.
+
+Live scrolling necessarily changes viewport position: agree on fixtures and
+restoration beforehand. Record starting scroll state in memory and restore it
+when supported; otherwise report that exact restoration is unavailable and
+obtain approval before movement. Hide diagnostic labels, restore focus/pointer
+where safe, unregister temporary callbacks and remove the isolated probe when
+done. Production rollback removes only W10's adopted changes, preserving
+unrelated navigation and the Outlook/active-menu investigations.

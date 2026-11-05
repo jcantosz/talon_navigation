@@ -140,6 +140,9 @@ class ApplicationLabelSession(LabelSession):
 
     def _active_menu(self):
         menu = ui.active_menu()
+        # Talon's active menu is system-wide and can be a stale popup from another app.
+        if menu is not None and controls.foreign_element(menu, self.owner):
+            menu = None
         if menu is None or usable_frame(menu):
             self.reported_menu = None
             self.resolved_menu = None

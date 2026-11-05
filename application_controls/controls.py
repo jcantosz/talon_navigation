@@ -122,6 +122,17 @@ def _surface_clip(surface):
     return surface.get("AXFrame")
 
 
+def foreign_element(element, owner):
+    """Return whether element provably belongs to an application other than owner."""
+    top = element.get("AXTopLevelUIElement") or element.get("AXWindow")
+    application = None if top is None else top.get("AXParent")
+    return (
+        application is not None
+        and application.get("AXRole") == "AXApplication"
+        and application != owner.element
+    )
+
+
 def visible_menu(window):
     """Find an unambiguous visible menu without entering closed submenu trees."""
     if window is None:
