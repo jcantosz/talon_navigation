@@ -209,7 +209,7 @@ verified performance claims.
 | [Highlighting](highlighting.md) | Editable validation, static text, substring bounds, matching | H1 voice validation; H2 lifecycle safety before promotion |
 | [Numbers and menus](numbers-and-menus.md) | Speed and grouping, app profiles, named sections, label handoff | N1/N2 timing baseline; N4/N8 grouping |
 | [Mouse AX controls](mouse-ax.md) | Hovered window, radius/directional numbers, background activation | M1 supported hit-testing and M2 geometry |
-| [Window hints](window-hints.md) | Pane hints, `number/move to/focus <pane>`, per-app pane config, auto-labelling | WH0 ground truth and WH2 pure geometry, then WH1 on Outlook |
+| [Window hints](window-hints.md) | Accepted [pane labels](../window_hints/README.md), profiles and generic discovery; focus/scoped numbers remain backlog | Extend layout validation before focus/scoped numbering |
 | [Workflow and command discovery](workflow-and-discovery.md) | HUD/"hug", profile-switcher Firefox aliases, Rango aliases, Community command learning | W5/W7/W8 existing-command learning; W3 profile identity |
 | [Cross-platform](cross-platform.md) | AX/UIA overlap; learn existing Windows commands (custom aliases cancelled) | P3 Community shortcut learning |
 | [Accessibility audit](accessibility-audit.md) | Fix evidence and remaining correctness limitations | See verification |
