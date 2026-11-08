@@ -98,6 +98,66 @@ synchronizes immediately with exactly one event handler. Removing this timer is 
 CPU optimization: the earlier paired timer-removal experiment saved at most
 about one percentage point of one core, within observed idle variation.
 
+### Local Windows HUD performance investigation - 2026-11-08
+
+After the event-driven caption change (`9ad44d1`) and the accessibility
+repository's build-output relocation (`355017b`), controlled idle tests identified
+Talon's built-in microphone-level animation as the main removable CPU cost.
+Percentages below are **of one CPU core**, not of the whole machine.
+
+| Configuration | HUD shown, two 30-second samples | HUD hidden, 30-second sample |
+| --- | --- | --- |
+| No user libraries | 7.6-7.9% | 0.6% |
+| Default commands | 10.2-11.2% | 4.3% |
+| Community and default commands | 22.8-27.3% | 10.0% |
+| Rango and default commands | 7.5-7.6% | 0.5% |
+| Community, Rango and default commands | 25.2-29.8% | 10.9% |
+| All libraries, including navigation and Windows accessibility | 23.9-24.1% | 11.2% |
+
+Each configuration used a fresh process, the same microphone and speech engine,
+and a settling interval before sampling. Startup logs were checked; these are
+idle-cost experiments, not command/recognition or browser acceptance tests.
+Variation and runtime differences between reduced configurations mean that
+individual library costs cannot be obtained by subtracting these rows.
+Even the no-user configuration rose to 19.1% after a HUD hide/show cycle;
+the lower initial no-user result does not prove user code causes the renderer's
+higher cost.
+
+The stronger within-process experiment kept the HUD visible and all 20 update
+calls per second running, but temporarily replaced only its microphone level
+with a constant. CPU changed from 23.5% to 9.8% at a constant nonzero idle level
+of `0.0001`, and 10.4% at `0.05`; restoring live levels returned it to 23.3%.
+An earlier zero-level experiment reproduced the reduction. Tiny changing idle
+microphone levels therefore drive expensive redraws; this is not primarily
+caption drawing or the cost of executing a 50ms timer. Disabling native captions
+alone left CPU near 25-26%. No Talon-core monkey patches were retained.
+
+Use Talon's **`actions.gui.toggle_hud()`** rather than hiding its low-level
+window. In idle tests the supported toggle sets `meter_running=False` and
+`poll_job=None`, with zero update callbacks. Hiding just the window leaves
+approximately 20 updates per second running.
+
+There is a caption trade-off: a native caption-renderer fixture displayed a
+separate bubble window with the HUD shown, but did not display it or restart
+the timer with the HUD hidden. The **Show Subtitles** menu can remain checked;
+that alone does not certify visible captions. These fixtures tested rendering,
+not a live recognized utterance. Community's separate subtitles implementation
+uses frozen canvases and is a candidate to test alongside its mode indicator
+before replacing the built-in HUD.
+
+The third-party [chaosparrot/talon_hud](https://github.com/chaosparrot/talon_hud)
+is another candidate, not a certified performance fix. Public source at revision
+`f694f7130f7338e7bc2eae4a23ef7bbdf4ee5278` freezes idle widget canvases, polls
+mode every 200ms and microphone selection every 300ms, and stops those pollers
+when their subscribers are removed. Animations temporarily use a 16ms job.
+Its installed-version compatibility and actual local CPU cost remain untested;
+it was not installed during this spike.
+
+All libraries were restored with matching file counts and Git HEADs. Remaining
+uncertainty is the native renderer/driver cost per redraw and which alternative
+best preserves caption and mode-indicator UX. This investigation does not
+establish long-term memory behavior.
+
 ## Formatted dictation
 
 On macOS, **prose** followed by dictation uses Talon Community's existing
