@@ -1,4 +1,5 @@
 tag: labels.controls_active
+-
 
 hover over <labels.target> | hover <labels.target>:
     labels.mouse_move(labels.target)
