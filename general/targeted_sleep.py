@@ -64,7 +64,12 @@ def configured_machine_names():
 
 def refresh_targeted_sleep_targets():
     global _current_targets
-    targets = targeted_sleep_targets(configured_machine_names(), platform.system())
+    try:
+        machine_names = configured_machine_names()
+    except KeyError:
+        # Module settings are unreadable until Talon finishes loading user scripts.
+        return
+    targets = targeted_sleep_targets(machine_names, platform.system())
     if targets != _current_targets:
         ctx.lists["user.targeted_sleep_target"] = targets
         _current_targets = targets

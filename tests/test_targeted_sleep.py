@@ -105,6 +105,17 @@ class TargetedSleepTests(unittest.TestCase):
             "1s", self.module.refresh_targeted_sleep_targets
         )
 
+    def test_refresh_keeps_targets_while_settings_are_unregistered(self):
+        def unregistered(name):
+            raise KeyError(name)
+
+        before = self.module.ctx.lists["user.targeted_sleep_target"]
+        with patch.object(
+            self.module, "settings", types.SimpleNamespace(get=unregistered)
+        ):
+            self.module.refresh_targeted_sleep_targets()
+        self.assertIs(self.module.ctx.lists["user.targeted_sleep_target"], before)
+
     def test_commands_are_anchored_and_available_awake_and_asleep(self):
         source = TALON_FILE.read_text()
         for mode in ("command", "dictation", "sleep"):
