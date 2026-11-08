@@ -72,20 +72,31 @@ available as fallbacks.
 Native Talon captions are automatically hidden in sleep mode and shown outside
 sleep mode. This is enabled by default.
 
-- **Sleep captions on**: enable this automatic behavior.
-- **Sleep captions off**: stop controlling captions and restore the underlying
+- **Sleep captions hidden**: enable this automatic behavior.
+- **Sleep captions default**: stop controlling captions and restore the underlying
   caption menu state captured when automatic control began. It does not mean
   "always hide captions."
 
 Both commands work while awake or asleep and show a native confirmation.
 The toggle resets to enabled when Talon restarts or the module reloads.
-This operates Talon's actual **Show Subtitles** menu control, checked every
-250 milliseconds, not Community's separate `user.subtitles_show` feature.
+This operates Talon's actual **Show Subtitles** menu control, not Community's
+separate `user.subtitles_show` feature. It synchronizes at startup/reload and on
+Talon's mode-change events, including sleep/wake through the tray menu. There is
+no polling timer; unrelated application/focus changes do not query the menu.
 It uses an internal Talon menu interface verified in the installed version;
 if that interface changes, it raises an explicit error rather than silently
-pretending captions changed. While enabled, manual caption changes are overridden
-by the current awake/asleep state. It does not change the speech mode,
+pretending captions changed. While enabled, manual tray caption changes last
+until the next mode change or reload, rather than being overridden every 250ms.
+**Captions on / captions off** set captions explicitly and disable automatic
+sleep control until **sleep captions hidden** is used again. It does not change the speech mode,
 microphone, sleep warnings, or Community subtitles.
+
+Verified locally on 2026-11-08: 13 focused tests, Ruff and Pylance syntax checks;
+live action and tray sleep/wake, explicit caption overrides, and baseline-state
+restoration; fresh startup has no caption timer, and hot reload while asleep
+synchronizes immediately with exactly one event handler. Removing this timer is an event-driven cleanup, not a substantial
+CPU optimization: the earlier paired timer-removal experiment saved at most
+about one percentage point of one core, within observed idle variation.
 
 ## Formatted dictation
 

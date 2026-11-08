@@ -27,6 +27,8 @@ class SleepCaptionsTests(unittest.TestCase):
         self.actions = Mock()
         self.actions.speech.enabled.return_value = False
         self.cron = Mock()
+        self.scope = Mock()
+        self.speech_system = types.SimpleNamespace(ready=False)
         self.item = CaptionItem(True)
         self.menu = types.SimpleNamespace(
             menu=types.SimpleNamespace(items=[self.item]),
@@ -37,6 +39,8 @@ class SleepCaptionsTests(unittest.TestCase):
         talon.app = self.app
         talon.cron = self.cron
         talon.menu = self.menu
+        talon.scope = self.scope
+        talon.speech_system = self.speech_system
         spec = importlib.util.spec_from_file_location(
             "sleep_captions_under_test", SOURCE
         )
@@ -44,11 +48,47 @@ class SleepCaptionsTests(unittest.TestCase):
         with patch.dict(sys.modules, {"talon": talon}):
             spec.loader.exec_module(self.module)
 
-    def test_ready_starts_sync_and_hides_real_menu_captions_while_asleep(self):
+    def test_ready_syncs_without_starting_a_timer(self):
         self.app.register.assert_called_once_with("ready", self.module.on_ready)
+        self.scope.register.assert_called_once_with(
+            "change", self.module.on_scope_change
+        )
         self.module.on_ready()
         self.assertFalse(self.item.checked)
-        self.cron.interval.assert_called_once_with("250ms", self.module.sync_captions)
+        self.cron.interval.assert_not_called()
+
+    def test_mode_events_sync_but_unrelated_events_do_not(self):
+        self.speech_system.ready = True
+        self.module.on_scope_change({"app"})
+        self.assertEqual(self.item.calls, 0)
+        self.module.on_scope_change({"mode"})
+        self.assertFalse(self.item.checked)
+        self.actions.speech.enabled.return_value = True
+        self.module.on_scope_change({"mode"})
+        self.assertTrue(self.item.checked)
+
+    def test_scope_events_wait_until_speech_system_is_ready(self):
+        self.menu.menu.items = []
+        self.module.on_scope_change({"mode"})
+        self.cron.interval.assert_not_called()
+
+    def test_reload_syncs_immediately_when_speech_system_is_ready(self):
+        self.speech_system.ready = True
+        spec = importlib.util.spec_from_file_location("caption_reload", SOURCE)
+        reloaded = importlib.util.module_from_spec(spec)
+        talon = types.SimpleNamespace(
+            Module=Mock(return_value=self.module.mod),
+            actions=self.actions,
+            app=self.app,
+            menu=self.menu,
+            scope=self.scope,
+            speech_system=self.speech_system,
+            cron=self.cron,
+        )
+        with patch.dict(sys.modules, {"talon": talon}):
+            spec.loader.exec_module(reloaded)
+        self.assertFalse(self.item.checked)
+        self.cron.interval.assert_not_called()
 
     def test_waking_enables_and_sleeping_disables_actual_menu_state(self):
         self.module.sync_captions()

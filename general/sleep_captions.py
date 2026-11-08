@@ -1,4 +1,4 @@
-from talon import Module, actions, app, cron, menu
+from talon import Module, actions, app, menu, scope, speech_system
 
 mod = Module()
 _enabled = True
@@ -82,7 +82,14 @@ class Actions:
 
 def on_ready():
     sync_captions()
-    cron.interval("250ms", sync_captions)
 
 
+def on_scope_change(changed):
+    if "mode" in changed and speech_system.ready:
+        sync_captions()
+
+
+scope.register("change", on_scope_change)
 app.register("ready", on_ready)
+if speech_system.ready:
+    on_ready()
