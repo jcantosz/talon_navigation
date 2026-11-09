@@ -117,6 +117,12 @@ class ApplicationCollectionTests(ApplicationTestCase):
         self.assertEqual(self.module._session.targets, [self.button])
         self.talon.notify.assert_not_called()
 
+    def expire_start_retries(self):
+        session = self.module._session
+        if session is not None and session.start_retry_job is not None:
+            session.start_deadline = 0.0
+            session._retry_start()
+
     def test_query_attribute_error_notifies_and_stops_session(self):
         for during_refresh in (False, True):
             with self.subTest(during_refresh=during_refresh):
@@ -129,6 +135,9 @@ class ApplicationCollectionTests(ApplicationTestCase):
                         session.refresh()
                     else:
                         self.actions.accessibility_show_application_numbers()
+                        session = self.module._session
+                        self.talon.notify.assert_not_called()
+                        self.expire_start_retries()
                 self.assertIsNone(self.module._session)
                 self.assertTrue(session.stopped)
                 self.assert_session_active(False)
@@ -136,6 +145,41 @@ class ApplicationCollectionTests(ApplicationTestCase):
                     "Application control labels",
                     "Unable to query the focused accessibility window.",
                 )
+
+    def test_failed_first_scan_retries_until_window_responds(self):
+        focused = self.application.attrs.pop("AXFocusedWindow")
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+
+        self.assertIs(session, self.module._session)
+        self.assertFalse(session.stopped)
+        self.talon.notify.assert_not_called()
+        self.talon.cron.after.assert_any_call(
+            self.session_module.SETTLE_INTERVAL, session._retry_start
+        )
+
+        session._retry_start()
+        self.assertIsNotNone(session.start_retry_job)
+        self.application.attrs["AXFocusedWindow"] = focused
+        session._retry_start()
+
+        self.assertIsNone(session.start_retry_job)
+        self.assertEqual(session.targets, [self.button, self.popup])
+        self.assertEqual(
+            self.talon.native_calls[-1], ("show", ([self.button, self.popup],))
+        )
+        self.talon.notify.assert_not_called()
+
+    def test_start_retry_is_cancelled_when_session_stops(self):
+        self.application.attrs.pop("AXFocusedWindow")
+        self.actions.accessibility_show_application_numbers()
+        session = self.module._session
+        job = session.start_retry_job
+
+        self.actions.accessibility_show_application_numbers()
+
+        self.assertTrue(session.stopped)
+        self.talon.cron.cancel.assert_any_call(job)
 
     def test_empty_initial_query_does_not_leave_an_inactive_session(self):
         self.talon.query_results = []
@@ -165,6 +209,7 @@ class ApplicationCollectionTests(ApplicationTestCase):
         query = Mock(return_value=[self.button])
         with patch.object(self.collection.axquery, "query_all", query):
             self.actions.accessibility_show_application_numbers()
+            self.expire_start_retries()
         query.assert_not_called()
         self.assertIsNone(self.module._session)
         self.talon.notify.assert_called_with(

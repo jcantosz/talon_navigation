@@ -1,5 +1,9 @@
 # Application control numbers
 
+Pane labelling is a separate accepted feature in
+[window_hints/](../window_hints/README.md), keeping its profiles, commands and
+label proxies out of this application-control directory.
+
 The application-number collector labels supported pressable controls in the
 focused window. When macOS exposes an active menu, that menu replaces the
 window as the numbered surface. While a session is active, a lightweight
@@ -7,6 +11,42 @@ active-menu check detects menus opened or dismissed by mouse as well as by
 voice; an unchanged menu state does not trigger a window-tree query. Custom
 popovers that macOS does not expose as an active accessibility menu are not
 covered by this detection.
+
+Flat menus exposing direct `AXMenuItem` children are collected without walking
+their submenu trees, and only items overlapping the popup frame are numbered.
+Other menu structures retain the AX query path. If the reported active menu
+has no usable frame, the session uses a unique visible menu in the focused
+window when one can be found; it does not guess between multiple visible menus.
+The resolved menu is cached while both the reported menu and resolved frame
+remain valid, and is shared by selection, refresh, Back, and hover checks.
+
+Applications build their accessibility tree after `AXEnhancedUserInterface` or
+`AXManualAccessibility` is set, so the first scan may find only the window
+frame. When showing numbers turns one of those attributes on, numbers appear
+immediately and the window is re-scanned every 250 ms until two re-scans in a
+row find no change, for at most 2 seconds. Talon's
+result for setting the attributes is not trusted; the attributes are read
+before and after. Applications that already have them enabled are scanned once.
+
+If the first scan fails, for example because the application briefly reports no
+focused window, it is repeated every 250 ms instead of ending the session. The
+failure is reported only once 2 seconds have passed since the command started
+without a successful scan. Failures after numbers have been shown are reported
+immediately, as before.
+
+Selecting an `AXTab`, or an `AXRadioButton` directly inside an `AXTabGroup`,
+retains the session and requests refreshed numbers, as do expanding controls
+such as combo boxes and popup buttons. Ordinary
+non-expanding selections dismiss numbers even if Talon's native selection
+does not hide them. A reported activation failure on an ordinary control stops
+the session and cancels pending refreshes. An expanding control that reports
+`ActionFailed` keeps the session and requests the same post-press refresh,
+because some applications open the popup and still report failure. Failed
+presses are never retried because an application may have partially performed
+the action.
+Menu polling and refreshes are paused during selection so native label hiding
+cannot erase a menu that a reentrant refresh just numbered. Expanding selections
+invalidate the previous render before requesting their post-press refresh.
 
 ## Implementation layout
 
@@ -16,7 +56,8 @@ covered by this detection.
 | [controls.py](controls.py) | AX queries, control and row filtering, clipping, deferred web areas, and focused surfaces used by diagnostics |
 | [activation.py](activation.py) | AX interface activation, bundle exclusions, and process identity checks |
 | [application_session.py](application_session.py) | Rendering, refresh scheduling, safe selection, menu transitions, and Back |
-| [inventory_core.py](inventory_core.py), [debug_snapshots.py](debug_snapshots.py), [snapshots.py](snapshots.py) | Diagnostic tree traversal, printing, and snapshot output, not the numbered-control query path |
+| [Shared AX utilities](../ax/README.md) | Bounded inventory traversal and focused-surface roots; the walker is not the numbered-control query path |
+| [Diagnostics](../diagnostics/README.md) | Opt-in inventory printing and snapshot output, separate from runtime sessions |
 
 The three extracted implementation modules do not register Talon commands or
 contexts. The entry point supplies the session's contexts and stop callback, so
@@ -42,7 +83,8 @@ diagnostic runtime tests are independent. Run the application tests with:
 uv run python -m unittest discover -s tests -p 'test_application_*.py'
 ```
 
-The experimental word highlighter and diagnostic commands still have active
+The [experimental word highlighter](../experiments/text_highlight/) and
+[diagnostic commands](../diagnostics/README.md) still have active
 Talon bindings; their names or lack of Python callers do not make them dead code.
 The highlighter will be retained and refined; validation and potential promotion
 are tracked in the [highlighting backlog](../backlog/highlighting.md).
@@ -92,6 +134,18 @@ selection time:
 
 A row's badge may be drawn on text inside the row for better placement, but
 the labelled text, logical row, and activation target are kept separate.
+The badge search does not enter another independently numbered target's
+subtree, but still traverses unnumbered row/group wrappers. If candidate badge
+anchors collide, or borrow another target itself, the affected badges use
+their original target elements instead. Target order and child-group activation
+are unchanged. These ownership checks use accessibility-element equality,
+not application-specific selectors.
+An unnamed arrow button contained in an unpressable combo box can use the
+combo box's larger frame for badge placement, provided it is the combo box's
+only pressable child. Selection still presses the arrow, not the combo box.
+Collision checking skips unchanged anchors and limits accessibility-element
+comparisons to candidates with matching roles and frames, avoiding all-pairs
+cross-process comparisons for large menus.
 VS Code's pressable groups inside non-pressable rows keep their existing
 selection behavior.
 

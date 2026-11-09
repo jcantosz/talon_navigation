@@ -1,7 +1,7 @@
 # Accessibility principle audit
 
 **Date:** 2026-10-29. **Scope:** all six Python and six Talon source files in
-[accessibility](../accessibility/), their focused tests, the shared
+[accessibility](../application_controls/), their focused tests, the shared
 [label wrapper](../lib/labels.py), and the adjacent menu implementation
 ([entry point](../menus/menu_labels.py) and [session](../menus/menu_session.py)).
 This is a source/behavior audit with fixes, not a security review or a live
@@ -18,7 +18,7 @@ regression tests in
 [highlight runtime tests](../tests/test_highlight_runtime.py), and
 [test_accessibility_snapshots.py](../tests/test_accessibility_snapshots.py).
 All seven original application-label regression tests failed against the pre-fix `HEAD` version
-of [inventory.py](../accessibility/inventory.py) and pass now.
+of [inventory.py](../application_controls/inventory.py) and pass now.
 
 This is not blanket certification: mocks verify specific paths, not all Talon
 or provider semantics. Remaining work includes **live** verification (context resolution, real AX
@@ -61,7 +61,7 @@ off pending native-app, browser and other Electron-app comparisons in
 
 `ApplicationLabelSession` published `user.application_labels_active` on
 `labels_ctx`, which itself required that tag, so the tag (and the select/hide
-overrides plus [inventory_active.talon](../accessibility/inventory_active.talon)
+overrides plus [inventory_active.talon](../application_controls/inventory_active.talon)
 grammar) could never activate. The session now publishes on the unconditional
 `os: mac` context, mirroring [menu_labels.py](../menus/menu_labels.py);
 `labels_ctx` keeps the overrides. `LabelOverrides.hide` now calls
@@ -74,7 +74,7 @@ select dispatches natively → hide clears the tag; expansion keeps the session.
 
 ### A2. Reload did not stop the previous session — fixed
 
-[inventory.py](../accessibility/inventory.py) assigned `_session = None` before
+[inventory.py](../application_controls/inventory.py) assigned `_session = None` before
 reading `globals().get("_session")`. The prior session is now captured first,
 as highlighting already did. **Tests:** re-executing the module in the same
 namespace stops the old session and cancels its pending refresh job.
@@ -86,7 +86,7 @@ namespace stops the old session and cancels its pending refresh job.
   boundary that logs and notifies (and handles no active app).
 - `ApplicationLabelSession.select` reads the target inside its `try`, so a
   stale element reports "Unable to activate the selected control."
-- [debug_snapshots.py](../accessibility/debug_snapshots.py) actions log and
+- [debug_snapshots.py](../diagnostics/debug_snapshots.py) actions log and
   notify AX and file I/O failures.
 - Highlighting logs and notifies a failed homophone lookup (then matches the
   exact word), and an element that disappears (`UIErr`) ends the session with
@@ -115,7 +115,7 @@ identity with unreliable `AXFocused` remains an open safety limitation.
 
 ### A5. Snapshots discarded incomplete-inventory evidence — fixed
 
-[snapshots.py](../accessibility/snapshots.py) now writes a `surfaces` list with
+[snapshots.py](../diagnostics/snapshots.py) now writes a `surfaces` list with
 per-surface node counts, collection errors, and `truncated`. The full and
 redacted files derive from a **single** capture (same `captured_at`), and
 `write_snapshots` returns whether the capture was partial; the debug action
@@ -127,8 +127,8 @@ attribute list; keep all trees local and ignored by Git.
 
 [Application runtime tests](../tests/test_application_session.py) and
 [highlight runtime tests](../tests/test_highlight_runtime.py) load
-the real [inventory.py](../accessibility/inventory.py) and
-[text_highlight_spike.py](../accessibility/text_highlight_spike.py) against a
+the real [inventory.py](../application_controls/inventory.py) and
+[text_highlight_spike.py](../experiments/text_highlight/text_highlight_spike.py) against a
 shared [Talon double](../tests/accessibility_support.py) (in the style of
 [menu_support.py](../tests/menu_support.py)) and cover A1-A4. Menu behavior
 tests are split across [test_menu_back.py](../tests/test_menu_back.py),
@@ -166,7 +166,7 @@ replace the live voice matrix.
 All commands used the existing local environment; no dependencies were installed.
 
 - `uv run ruff check accessibility tests lib` and `ruff format`: passed.
-- `node scripts/lint_talon.mjs accessibility/*.talon`: passed (no Talon edits).
+- `node scripts/lint_talon.mjs application_controls/*.talon`: passed (no Talon edits).
 - The then-current runtime, snapshot, inventory, text-highlighting, menu, and
   AX-report suites: **70 tests passed** on the latest audit run.
   This includes 15 added checks for native-hide simulation/refresh, lifecycle

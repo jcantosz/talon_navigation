@@ -22,17 +22,54 @@ def usable_frame(element):
     )
 
 
-def label_element(element, in_menu=False):
+def label_element(element, in_menu=False, boundaries=None):
     """Anchor a row or menu item on contained text when useful."""
     role = element.get("AXRole")
+    if (
+        role == "AXButton"
+        and not element.get("AXTitle")
+        and not element.get("AXDescription")
+    ):
+        parent = element.get("AXParent")
+        if (
+            parent is not None
+            and parent.get("AXRole") == "AXComboBox"
+            and "AXPress" not in parent.actions
+            and usable_frame(parent)
+            and usable_frame(element)
+        ):
+            pressable = [
+                child
+                for child in parent.get("AXChildren") or ()
+                if "AXPress" in child.actions
+            ]
+            bounds = parent.get("AXFrame")
+            frame = element.get("AXFrame")
+            if (
+                len(pressable) == 1
+                and pressable[0] == element
+                and bounds.x <= frame.x
+                and bounds.y <= frame.y
+                and frame.x + frame.width <= bounds.x + bounds.width
+                and frame.y + frame.height <= bounds.y + bounds.height
+            ):
+                return parent
     menu_item = in_menu and role == "AXMenuItem"
     if role != "AXRow" and not menu_item:
         return element
     if menu_item and not usable_frame(element):
         return element
     bounds = element.get("AXFrame")
+    boundaries = boundaries or {}
     level = list(element.get("AXChildren") or ())
     for _ in range(LABEL_TEXT_LEVELS):
+        level = [
+            child
+            for child in level
+            if not any(
+                child == target for target in boundaries.get(child.get("AXRole"), ())
+            )
+        ]
         texts = []
         for child in level:
             if (
@@ -60,6 +97,47 @@ def label_element(element, in_menu=False):
             for grandchild in child.get("AXChildren") or ()
         ]
     return element
+
+
+def label_elements(targets, in_menu=False):
+    """Keep badge anchors distinct without changing target order or activation."""
+    targets = list(targets)
+    boundaries = {}
+    for target in targets:
+        boundaries.setdefault(target.get("AXRole"), []).append(target)
+    anchors = [
+        label_element(target, in_menu=in_menu, boundaries=boundaries)
+        for target in targets
+    ]
+    if all(target is anchor for target, anchor in zip(targets, anchors)):
+        return anchors
+    # AX equality can make synchronous cross-process calls. Compare only elements
+    # with matching roles and frames, and only when an anchor was substituted.
+    buckets = {}
+    for index, (target, anchor) in enumerate(zip(targets, anchors)):
+        for element in (target,) if target is anchor else (target, anchor):
+            bounds = element.get("AXFrame")
+            key = (
+                element.get("AXRole"),
+                None
+                if bounds is None
+                else (bounds.x, bounds.y, bounds.width, bounds.height),
+            )
+            buckets.setdefault(key, []).append((index, element))
+    collisions = set()
+    for candidates in buckets.values():
+        for index, anchor in candidates:
+            if anchor is targets[index]:
+                continue
+            if any(
+                index != other and anchor == candidate
+                for other, candidate in candidates
+            ):
+                collisions.add(index)
+    return [
+        target if index in collisions else anchor
+        for index, (target, anchor) in enumerate(zip(targets, anchors))
+    ]
 
 
 def submenu_hover_point(target, menu):
@@ -158,7 +236,9 @@ class LabelSession:
         finally:
             self.preserve_hide = previous
 
-    def hover_submenu_if_current(self, target, menu, position, focus_valid):
+    def hover_submenu_if_current(
+        self, target, menu, position, focus_valid, active_menu=None
+    ):
         """Hover only while the session, focus, menu, and pointer remain current."""
         if self.stopped or ctrl.mouse_pos() != position or not focus_valid():
             return
@@ -168,7 +248,7 @@ class LabelSession:
             or point is None
             or ctrl.mouse_pos() != position
             or not focus_valid()
-            or ui.active_menu() != menu
+            or (active_menu or ui.active_menu)() != menu
             or self.stopped
         ):
             return

@@ -258,7 +258,7 @@ class ApplicationMenuBackTests(ApplicationMenuTestCase):
         self.assertIsNone(self.module._session)
 
     def test_escape_and_session_overrides_use_separate_tags(self):
-        active = (ROOT / "accessibility" / "inventory_active.talon").read_text()
+        active = (ROOT / "application_controls" / "inventory_active.talon").read_text()
         self.assertIn(f"tag: {ACTIVE_TAG}", active)
         self.assertIn("key(escape):", active)
         self.assertIn(f"tag: {SESSION_TAG}", self.module.labels_ctx.matches)

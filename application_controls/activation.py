@@ -34,6 +34,18 @@ def set_interfaces(owner, enabled, force=False):
     return "updated", tuple(changed)
 
 
+def enabled_interfaces(owner):
+    """Return the AX interface attributes that currently read as enabled."""
+    enabled = set()
+    for attribute in ACCESSIBILITY_ATTRIBUTES:
+        try:
+            if owner.element.get(attribute) is True:
+                enabled.add(attribute)
+        except (AttributeError, ui.UIErr):
+            continue
+    return enabled
+
+
 def application_key(owner):
     return owner.pid, owner.created_at
 

@@ -5,6 +5,28 @@ command reports.
 Install this repository anywhere under Talon's `user` directory. Menu navigation
 requires macOS accessibility support and Talon's native labels API.
 
+## Repository layout
+
+- [application_controls/](application_controls/README.md): focused-window control
+  numbering, AX activation, collection, session lifecycle and app settings.
+- [ax/](ax/README.md): shared AX inventory traversal and focused-surface utilities.
+- [diagnostics/](diagnostics/README.md): opt-in AX inventories and snapshots.
+- [experiments/](experiments/README.md): unaccepted features, including text
+  highlighting; their Talon commands remain loaded.
+- [window_hints/](window_hints/README.md): pane labels and declarative profiles.
+- [menus/](menus/), [status/](status/) and [mouse/](mouse/): their respective
+  navigation features.
+- [lib/](lib/): shared label and role helpers.
+- [tests/](tests/): flat test discovery, unchanged by the feature-directory split.
+
+## Window hints
+
+Say **window hints** to label panes of the focused window, then use commands
+such as **hover files** or **hover editor two**. VS Code has a declarative pane
+profile; other applications use generic AX discovery.
+See [Window hints](window_hints/README.md) for configuration, layout, validation
+and known selection/compatibility limits.
+
 ## Speech ignored while asleep
 
 When Talon's sleep-mode catch-all recognizes and ignores an utterance, a
@@ -217,7 +239,7 @@ Only menus exposed as macOS accessibility menus are detected automatically;
 custom popovers may not be. Row selection uses a constrained child-group
 heuristic for applications whose row press is ineffective. Its exact conditions
 and limitations, along with submenu fallbacks, are documented in
-[accessibility/README.md](accessibility/README.md).
+[application_controls/README.md](application_controls/README.md).
 
 ## Menu navigation
 
@@ -403,7 +425,7 @@ Feature modules retain their own navigation-specific state and accessibility
 traversal. Application query depth, timeouts, clipping, and deferred web areas
 remain independent of the bounded status-panel traversal and status-icon probes.
 Application-numbering module responsibilities and focused test groups are
-described in the [accessibility implementation layout](accessibility/README.md#implementation-layout).
+described in the [accessibility implementation layout](application_controls/README.md#implementation-layout).
 
 The checker runs Ruff's Python syntax/lint checks, Python formatting checks, the
 Tree-sitter Talon parser and Cursorless formatter, then all unit tests. It checks

@@ -36,7 +36,9 @@ class HighlightRuntimeTests(unittest.TestCase):
         )
         self.talon.user.dictation_current_element = lambda: self.element
         self.talon.user.homophones_get = lambda word: None
-        self.module = load(self.talon, "accessibility/text_highlight_spike.py")
+        self.module = load(
+            self.talon, "experiments/text_highlight/text_highlight_spike.py"
+        )
         self.actions = self.module.Actions
 
     def test_start_selects_nearest_match_with_shared_offset(self):
@@ -113,7 +115,11 @@ class HighlightRuntimeTests(unittest.TestCase):
         self.actions.text_highlight_spike_start("one")
         session = self.module._session
 
-        load(self.talon, "accessibility/text_highlight_spike.py", self.module)
+        load(
+            self.talon,
+            "experiments/text_highlight/text_highlight_spike.py",
+            self.module,
+        )
 
         self.assertTrue(session.stopped)
         self.assertIsNone(self.module._session)

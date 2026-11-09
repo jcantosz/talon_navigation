@@ -24,7 +24,7 @@ class DebugRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.talon = FakeTalon()
         self.talon.active_app = types.SimpleNamespace(pid=1, name="Example")
-        self.module = load(self.talon, "accessibility/debug_snapshots.py")
+        self.module = load(self.talon, "diagnostics/debug_snapshots.py")
 
     def test_debug_import_does_not_register_application_numbering(self):
         self.assertEqual(self.talon.contexts, [])

@@ -223,7 +223,12 @@ class ApplicationTestCase(unittest.TestCase):
     def setUp(self):
         self.talon = FakeTalon()
         self.window = Element(AXRole="AXWindow")
-        self.application = Element(AXRole="AXApplication", AXFocusedWindow=self.window)
+        self.application = Element(
+            AXRole="AXApplication",
+            AXFocusedWindow=self.window,
+            AXEnhancedUserInterface=True,
+            AXManualAccessibility=True,
+        )
         self.talon.active_app = types.SimpleNamespace(
             pid=1,
             name="Example",
@@ -236,7 +241,7 @@ class ApplicationTestCase(unittest.TestCase):
             AXRole="AXPopUpButton", AXTitle="Choose", AXFrame=frame(x=100)
         )
         self.talon.query_results = [self.button, self.popup]
-        self.module = load(self.talon, "accessibility/inventory.py")
+        self.module = load(self.talon, "application_controls/inventory.py")
         self.session_module = self.module.application_session
         self.collection = self.session_module.controls
         self.actions = self.module.Actions
@@ -259,7 +264,12 @@ class ApplicationMenuTestCase(unittest.TestCase):
         self.window = Element(
             AXRole="AXWindow", AXFrame=frame(x=0, y=0, width=500, height=500)
         )
-        self.application = Element(AXRole="AXApplication", AXFocusedWindow=self.window)
+        self.application = Element(
+            AXRole="AXApplication",
+            AXFocusedWindow=self.window,
+            AXEnhancedUserInterface=True,
+            AXManualAccessibility=True,
+        )
         self.talon.active_app = types.SimpleNamespace(
             pid=1,
             name="Example",
@@ -274,7 +284,7 @@ class ApplicationMenuTestCase(unittest.TestCase):
         )
         self.menu.actions = ["AXCancel"]
         self.results = {id(self.window): [self.button], id(self.menu): [self.item]}
-        self.module = load(self.talon, "accessibility/inventory.py")
+        self.module = load(self.talon, "application_controls/inventory.py")
         self.session_module = self.module.application_session
         self.collection = self.session_module.controls
         self.actions = self.module.Actions

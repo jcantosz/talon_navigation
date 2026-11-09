@@ -5,6 +5,7 @@ from math import isfinite
 
 from talon import axquery, settings, ui
 
+from ..ax.surfaces import focused_surfaces as focused_surfaces
 from ..lib.labels import usable_frame
 from ..lib.roles import CONTROL_ROLES
 
@@ -13,19 +14,6 @@ ROW_ITEM_LEVELS = 3
 ROW_ACTIVATION_COVERAGE = 0.8
 MAX_NATIVE_NODES = 10000
 _CURRENT_SURFACE = object()
-
-
-def focused_surfaces(owner):
-    focused_window = owner.element.get("AXFocusedWindow")
-    if focused_window is None:
-        raise RuntimeError(
-            f"{owner.name} does not expose an AXFocusedWindow attribute."
-        )
-    surfaces = [("focused-window", focused_window)]
-    menu = ui.active_menu()
-    if menu is not None:
-        surfaces.append(("active-menu", menu))
-    return surfaces
 
 
 def _query_budget():
@@ -134,6 +122,54 @@ def _surface_clip(surface):
     return surface.get("AXFrame")
 
 
+def foreign_element(element, owner):
+    """Return whether element provably belongs to an application other than owner."""
+    top = element.get("AXTopLevelUIElement") or element.get("AXWindow")
+    application = None if top is None else top.get("AXParent")
+    return (
+        application is not None
+        and application.get("AXRole") == "AXApplication"
+        and application != owner.element
+    )
+
+
+def visible_menu(window):
+    """Find an unambiguous visible menu without entering closed submenu trees."""
+    if window is None:
+        raise RuntimeError("The application has no focused accessibility window.")
+    pending = [window]
+    menus = []
+    for _ in range(MAX_NATIVE_NODES):
+        if not pending:
+            return menus[0] if len(menus) == 1 else None
+        element = pending.pop()
+        if element.get("AXRole") == "AXMenu":
+            if usable_frame(element):
+                menus.append(element)
+            continue
+        pending.extend(reversed(element.get("AXChildren") or ()))
+    raise RuntimeError("Too many accessibility nodes while locating a visible menu.")
+
+
+def _query_menu_controls(menu, controls, budget):
+    children = list(menu.get("AXChildren") or ())
+    if (
+        usable_frame(menu)
+        and children
+        and all(child.get("AXRole") == "AXMenuItem" for child in children)
+    ):
+        clip = menu.get("AXFrame")
+        for child in children:
+            if (
+                _overlaps(child.get("AXFrame"), clip)
+                and child.get("AXPosition") is not None
+                and "AXPress" in child.actions
+            ):
+                _add_control(child, controls)
+        return
+    _query_controls(menu, controls, budget, _surface_clip(menu))
+
+
 def _overlaps(frame, clip):
     return (
         frame is not None
@@ -180,7 +216,7 @@ def collect(owner, menu=_CURRENT_SURFACE, window=_CURRENT_SURFACE):
     if menu is _CURRENT_SURFACE:
         menu = ui.active_menu()
     if menu is not None:
-        _query_controls(menu, controls, budget, _surface_clip(menu))
+        _query_menu_controls(menu, controls, budget)
         return controls, []
     if window is _CURRENT_SURFACE:
         window = owner.element.get("AXFocusedWindow")
