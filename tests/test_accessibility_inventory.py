@@ -37,7 +37,45 @@ class BrokenElement(Element):
         pass
 
 
+class BoundaryElement(Element):
+    def get(self, name):
+        if name == "AXChildren":
+            raise AssertionError("Boundary children must not be fetched")
+        return super().get(name)
+
+
 class AccessibilityInventoryTests(unittest.TestCase):
+    def test_depth_bound_stops_repeated_search_field_children(self):
+        class RepeatedElement(Element):
+            def get(self, name):
+                if name == "AXChildren":
+                    return (RepeatedElement({"AXRole": "AXTextField"}),)
+                return super().get(name)
+
+        root = RepeatedElement({"AXRole": "AXWindow"})
+        result = inventory_core.collect(root, UIError, max_depth=2)
+        self.assertFalse(result.truncated)
+        self.assertEqual(len(result.nodes), 3)
+
+    def test_depth_boundary_includes_marker_but_not_its_children(self):
+        marker = BoundaryElement({"AXRole": "AXGroup"})
+        root = Element({"AXRole": "AXWindow"}, children=(marker,))
+        result = inventory_core.collect(root, UIError, max_depth=1)
+        self.assertEqual([n.path for n in result.nodes], [(), (0,)])
+        self.assertFalse(result.truncated)
+        with self.assertRaisesRegex(AssertionError, "must not be fetched"):
+            inventory_core.collect(root, UIError)
+
+    def test_content_pruning_keeps_following_sibling_panes(self):
+        table = BoundaryElement({"AXRole": "AXTable"})
+        message = Element({"AXRole": "AXWebArea"})
+        root = Element({"AXRole": "AXWindow"}, children=(table, message))
+        result = inventory_core.collect(root, UIError, stop_roles=("AXTable",))
+        self.assertEqual(
+            [n.role for n in result.nodes], ["AXWindow", "AXTable", "AXWebArea"]
+        )
+        self.assertFalse(result.errors)
+
     def test_inventory_uses_shared_roles_without_requiring_talon(self):
         self.assertIs(inventory_core.CONTROL_ROLES, roles.CONTROL_ROLES)
         self.assertEqual(

@@ -3,6 +3,17 @@
 from talon import ui
 
 
+def contains(root, element):
+    """Test bounded AX ancestry without enumerating a subtree."""
+    for _ in range(100):
+        if element is None:
+            return False
+        if element == root:
+            return True
+        element = element.get("AXParent")
+    raise RuntimeError("Unable to resolve accessibility ancestry.")
+
+
 def focused_surfaces(owner):
     focused_window = owner.element.get("AXFocusedWindow")
     if focused_window is None:

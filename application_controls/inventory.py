@@ -1,6 +1,7 @@
 """Talon registrations, settings, and ownership of application-number sessions."""
 
 import logging
+from collections.abc import Callable
 
 from talon import Context, Module, actions, app, ui
 
@@ -82,7 +83,7 @@ def _stop():
     _session = None
 
 
-def _show_application_numbers():
+def _show_application_numbers(scope=None):
     global _session
     actions.labels.hide()
     _stop()
@@ -106,13 +107,23 @@ def _show_application_numbers():
         return
 
     _session = application_session.ApplicationLabelSession(
-        owner, ctx, session_ctx, _stop
+        owner, ctx, session_ctx, _stop, scope=scope
     )
     _session.start(settle=just_enabled)
 
 
 @mod.action_class
 class Actions:
+    def accessibility_show_section_numbers(resolve_section: Callable[[], ui.Element]):
+        """Start application numbers with a freshly resolved section subtree."""
+        _show_application_numbers(scope=resolve_section)
+
+    def accessibility_invalidate_numbers_for_scroll():
+        """Hide stale control numbers and refresh after the current scroll action."""
+        if _session is not None:
+            _session.hide_for_transition()
+            _session.request_refresh("100ms")
+
     def accessibility_prepare_active_app() -> bool:
         """Enable supported AX interfaces for a read-only accessibility action."""
         owner = ui.active_app()

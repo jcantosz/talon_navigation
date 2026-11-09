@@ -1,43 +1,96 @@
 # Window hints backlog
 
 **Status:** Pane labelling accepted on 2026-11-05 and moved to
-[window_hints/](../window_hints/README.md). Focus and scoped numbering remain
-unimplemented. The original exploration plan and chronological evidence below
+[window_hints/](../window_hints/README.md). Scoped actionable-control numbering
+and targeted wheel scrolling are implemented; keyboard pane focus is not.
+The original exploration plan and chronological evidence below
 are retained; historical limitations may be superseded by later entries.
 Follow the [project principles](README.md).
 
-## Current state (2026-11-05)
+## Current state (updated 2026-11-09)
 
 This section and [feature documentation](../window_hints/README.md) describe
 the current behavior. The experiment log is historical evidence, not the
 current specification.
 
+The superseded whole-pane VS Code profile and its fixture have been removed.
+The single [VS Code profile](../window_hints/profiles/vscode.json) uses the
+accepted selectors formerly in `vscode_named.json`. Names/numbers are command
+rendering choices, not separate profile definitions.
+
+### Central application mapping consolidation (2026-11-09)
+
+Application associations now live in `user.window_hints_applications` in the
+shared [window_hints.talon](../window_hints/window_hints.talon). Removed the
+three superseded per-app hint selectors and the old single-profile setting.
+The exact-bundle mapping preserves Slack, Outlook and all seven macOS variants
+of the former Community VS Code alias. Inventory-query tuning remains separate.
+
+Validation: 535 full-tree tests pass, focused Ruff/format and Talon lint pass.
+Tests cover malformed/duplicate/missing mappings, all preserved bundle IDs,
+exact matching, generic fallback, setting edits and warmed zero-filesystem work.
+Live Slack -> Outlook focus replay passed both named and numbered modes, hidden
+root invalidation and 20 zero-IO section resolutions per mode. The currently
+exposed Outlook layout matched search/sidebar/inboxes but not mail/message;
+this mapping-only validation used inboxes rather than claiming broader layout
+coverage. The original active window was restored; no content was activated.
+
+Design review: one explicit setting, one cached parser, existing profile loader
+and existing focus lifecycle. No directory discovery, watcher, new context
+registry, per-app traversal branches or per-scroll profile reads. Invalid
+configuration fails visibly rather than falling back to an arbitrary profile.
+The fixed VS Code bundle list must be updated explicitly for future variants.
+Efficient, clean and maintainable for the requested centralization. Pass.
+
+The central mapping now uses a triple-quoted setting with one association per
+line. Native Talon parsing and live settings confirm all nine entries load;
+eight profile/mapping tests pass. No runtime/parser logic changed: existing
+whitespace handling already supports this form. The third-party tree-sitter
+Talon linter rejects this multiline setting syntax even though native Talon
+accepts it; that tooling limitation remains explicit rather than changing the
+working configuration to satisfy a different grammar.
+
 **Accepted and implemented**
 
 - Native Talon named labels with custom profile names and 12x12 centre targets.
   No custom canvas, underline, or horizontal rule.
-- Declarative per-application profiles; VS Code is the only configured app.
-  Its targets are search, activity bar, manage, files, each visible code editor
+- Declarative per-application profiles for VS Code, Slack channels and Outlook
+  mail. VS Code's targets are search, sidebar, manage, files, each visible code editor
   and tab strip, optional bottom panel, and the secondary sidebar named chat.
+- Slack targets search, sidebar, manage, channels, messages, optional thread and
+  compose inputs. Outlook targets search, sidebar, inboxes, mail and message.
+  These current views are validated, not automatic detection/support of other
+  sidebar-selected views.
 - All repeated names have spoken numeric suffixes, including the first:
   `tabs one`, `tabs two`, `editor one`, `editor two`. Singletons are unsuffixed.
 - Existing `hover <label>` commands move to the corresponding group centre.
   Nine targets in a two-editor layout passed command replay and screenshot
   validation; the later single-editor layout rendered seven unsuffixed names.
+- Visible hints follow application/window focus, preserving named/numbered mode.
+  Hide or replacement cancels refresh; old walks cannot publish late hints.
+- `scroll <section> <direction> [amount]` uses verified centre-point wheel input,
+  without click/focus changes. `number <section>` reuses the production control
+  session with a freshly resolved, viewport-clipped subtree. Native visible
+  table rows avoid offscreen-list query starvation.
 - Label proxies retain real AX references and delegate actions to the original
   group. Custom-target failures have logged/notified synchronous fallback to
   original elements/geometry. Many groups have no AXPress, so selection is
   unsupported there; focus and selection are not inferred from successful hover.
-- Apps without a profile use generic AX pane discovery. Profile mode currently
-  controls all three show commands; numbers/all variants differ only without a
-  selected profile.
+- Apps without a profile use generic AX pane discovery. A single profile
+  defines targets; commands choose names or numbers on the same centre targets.
+  The all variant broadens discovery only when no profile is selected.
 - Accepted implementation lives in [window_hints/](../window_hints/README.md);
   shared traversal and focused surfaces live in [ax/](../ax/README.md).
   Runtime code no longer uses spike filenames.
 
 **Validation and remaining risks**
 
-473 tests passed in the full working tree, with Ruff and Talon lint passing.
+The current working tree passes all 514 tests, Ruff and
+Talon lint. All 13 current app targets passed named hover replay within one
+logical pixel of their centres, screenshot checks and numbered-label counts.
+Bounded collection avoids enumerating large mail lists and recursive search
+fields; generic and diagnostic walks retain their defaults.
+Earlier reorganization validation had 473 tests passing in the working tree.
 The directory reorganization's staged tree was also tested independently of
 unrelated uncommitted changes: 471 tests ran, with three skips.
 Live Talon reload and pane rendering passed after the moves.
@@ -45,7 +98,8 @@ These results do not establish all original spike acceptance criteria.
 The private Talon `_ref` dependency, VS Code internal DOM selectors, deferred
 render failures, stale labels after layout changes, and non-code editor kinds
 (diffs, notebooks, webviews) remain compatibility/coverage risks. Pane labels
-are snapshots; rerun `window hints` after moving or changing views.
+refresh on application/window focus, but not every internal layout/view change;
+rerun `window hints` after rearranging the current window.
 
 ## Remaining spike status
 
@@ -56,20 +110,19 @@ original fixture matrix or acceptance bar has passed.
 | Spike | Status | Remaining validation or work |
 |---|---|---|
 | WH0: ground truth | Partial | Human pane inventories and precision/recall across the full app/view matrix |
-| WH1: discovery | Partial | Outlook/Slack profiles, left rails in other apps, non-code VS Code editors, selector durability after rearrange/relaunch |
+| WH1: discovery | Partial | Other Slack/Outlook views, left rails in other apps, non-code VS Code editors, selector durability after rearrange/relaunch |
 | WH2: geometry | Partial | Pure tests and centre targets work; live multi-display, collapsed/covered panes and reordered layouts remain |
 | WH3: names | Accepted current scheme; broader validation pending | Custom names and repeated spoken suffixes work; microphone recognition and other apps remain |
 | WH4: rendering | Accepted current renderer; lifecycle validation pending | Native proxy labels work; Talon-version compatibility, sleep/wake, stale targets and deferred failures remain |
-| WH5: movement/focus | Hover verified; focus not implemented | Verify an explicit keyboard-focus mechanism by key effect; report unsupported groups rather than adding a click guess |
-| WH6: scoped numbers | Not implemented | `number <pane>` with required-control equivalence, stale-session safety and return to full-window numbers |
-| WH7: profiles | Accepted mechanism; app coverage partial | VS Code profile exists; Outlook/Slack profiles, malformed-config live checks, moved panes and version resilience remain |
+| WH5: movement/focus | Hover and targeted wheel implemented; keyboard focus not implemented | Broader scrolling fixtures and direction overrides; verify keyboard-focus mechanism by key effect |
+| WH6: scoped numbers | Implemented for actionable controls; validation partial | Wider view matrix, activation of Outlook cells on safe content, full-window equivalence under compatible visibility policies |
+| WH7: profiles | Accepted mechanism; app coverage partial | VS Code, Slack channels and Outlook mail profiles exist; other views, malformed-config live checks, moved panes and version resilience remain |
 | WH8: generic fallback | Partial | Generic role discovery exists; precision/recall threshold across the fixture matrix is not established |
 | WH9: grammar/promotion | Pane labels accepted; remaining commands pending | Hover command replay works; microphone trials, focus/scoped-number grammar, lifecycle and overlap checks remain |
 
 **Recommended next investigations:** selector durability on moved/split and
-non-code editors; then focus (WH5) and scoped numbers (WH6). Outlook/Slack
-profiles can be separate data-driven spikes with their own ground truth and
-screenshots. Each remains subject to the existing scope/approval rules.
+non-code editors; other Slack/Outlook views; then focus (WH5) and scoped numbers
+(WH6). Each remains subject to the existing scope/approval rules.
 
 ## Idea
 
@@ -536,8 +589,8 @@ from the screen.
 [window_hints_profile.py](../window_hints/profiles.py), driven by
 data. The VS Code profile is
 [window_hints_profiles/vscode.json](../window_hints/profiles/vscode.json),
-selected by `user.window_hints_profile = "vscode"` in
-[window_hints_vscode.talon](../window_hints/vscode.talon). Core
+selected by the central `user.window_hints_applications` bundle mapping in
+[window_hints.talon](../window_hints/window_hints.talon). Core
 code contains no application names (a test greps for them).
 
 Schema: `panes` (ordered; the number is the pane's position in this list),
@@ -574,7 +627,7 @@ the same frame). Named now wins, then outermost; a regression test asserts
 `window hints large` command were removed.
 
 **Tests:** [test_window_hints_profile.py](../tests/test_window_hints_profile.py)
-(21: real sanitized [fixture](../tests/fixtures/vscode_grid.json), moved
+(21 at the time: a real sanitized fixture (removed after profile consolidation), moved
 sidebar, bottom panel, hidden/zero-size cells, shuffled nodes, unknown part not
 guessed, tiling failure, generic matcher, scope, depth, schema rejection) and
 [test_window_hints_spike.py](../tests/test_window_hints_core.py).
@@ -616,7 +669,7 @@ Failure of that retry is propagated to the command's error notification.
 Errors occurring later inside Talon's renderer are not covered by this
 synchronous fallback.
 
-The active [named profile](../window_hints/profiles/vscode_named.json)
+The active [profile](../window_hints/profiles/vscode.json)
 now targets activity bar, sidebar, editor tabs, editor, optional panel and
 secondary sidebar (named `chat` for this layout). Layout cells are resolved
 with the existing ancestor scope; tabs target themselves. This removes both
@@ -721,3 +774,141 @@ file lint passed. The real `window_hints_show` action hot-reloaded successfully
 and rendered all seven expected names in the current single-editor VS Code
 layout, with no suffix on the singleton tabs/editor. Labels were hidden after
 the check. The prior split-layout command validation remains recorded above.
+
+### 2026-11-09: consolidate profiles and rendering modes
+
+Removed the obsolete numbered whole-window profile. Renamed the accepted named
+profile to `vscode.json` and updated its selecting Talon context. Removed the
+profile `labels` option: `window hints` requests names, while `window hint
+numbers` and `window hints all` request numbers over the same configured
+targets. Both modes use the same centred real-element proxies and preserve
+real-group action routing and original-element fallback.
+
+Removed the superseded whole-pane AX fixture. Geometry/tiling tests now use
+synthetic application-independent nodes and matchers, while the actual shipped
+profile retains selector coverage for search, split editors/tabs, files and
+the separate rail sections. Added renderer and action-wiring tests for named
+and numbered modes and numbered-mode fallback.
+
+Live Talon verified identical 12x12 target geometry in both rendering modes on
+three real group elements in the focused application. VS Code was not focused,
+so no fresh live VS Code selector validation is claimed. Generic unconfigured
+discovery also retained the same targets between modes. Diagnostic labels were
+cleared. Added a root [agent rule](../AGENTS.md) requiring removal of superseded
+implementations, configuration and files, with callers/tests/docs updated.
+
+### 2026-11-09: Slack channels and Outlook mail profiles
+
+Added declarative [Slack](../window_hints/profiles/slack.json) and
+[Outlook](../window_hints/profiles/outlook.json) profiles selected by exact
+bundle contexts. No app-specific traversal branches, native AX mutations,
+clicks or message selection were introduced.
+
+Native `identifier` and `help` matching allows Outlook search and the Mail tool
+to resolve without relying on child positions or message content. Outlook's
+Message List table has an oversized offscreen content frame; its named parent
+group supplies the viewport. The message's nearest scroll area similarly bounds
+the body. Slack uses structural DOM classes and the semantic outline description.
+
+The shared collector now has opt-in depth and leaf-role boundaries. Profile
+walks stop inside tables, outlines and text controls, and apply the configured
+global depth cap. This avoids Outlook's repeating search-field chain and huge
+mail list while preserving later sibling panes. Existing generic/diagnostic
+walks are unchanged.
+
+Validation: eight Slack and five Outlook targets rendered with custom names.
+Actual `hover <name>` command replay reached every centre within one logical
+pixel, including both compose inputs; numeric mode rendered the same counts.
+Local screenshots confirmed placement. Slack collection took about 0.22 seconds,
+Outlook 0.03–0.05 seconds; neither walk truncated or reported AX errors.
+The first hover measurement at 0.4 seconds preceded mouse-animation completion;
+retesting at 0.8 seconds reached all expected centres. Original app focus and
+pointer were restored, and labels cleared. Private screenshots/probes are not
+repository fixtures.
+
+Synthetic tests cover semantic matching, oversized content vs viewport/action
+references, absent optional panes, duplicate/singleton compose names, translated
+geometry, depth boundaries and unchanged generic-walk arguments. Other Slack
+sections, Outlook Calendar/People, localization, relaunch durability and
+click/focus/scoped numbering remain unvalidated or unimplemented.
+
+The existing VS Code single-editor view was also replayed after the bounded-walk
+change: all seven named targets (including the current `side bar` label) reached
+their centres within one logical pixel, and numbered mode retained seven labels.
+
+### 2026-11-09: focus refresh, targeted wheel and scoped control numbers
+
+Implemented focus-driven refresh for visible section hints through Talon's
+supported `app_activate` and `win_focus` events. A 100 ms coalesced refresh reads
+the current app's profile/settings, preserving the rendering mode and clearing
+old labels immediately. Explicit hide and foreign named/numbered labels relinquish
+ownership; focus changes do not resurrect them. Revision checks cancel late
+query results, including dismissal or another focus change during collection.
+Internal native rendering temporarily suspends the ownership overrides to avoid
+intercepting Talon's nested label calls.
+
+Added `scroll <section> <up|down|left|right> [amount]` (1–20 units, default one).
+Current-window cached section resolution, menu rejection
+and final ownership checks precede native positioned wheel dispatch. The original
+unjustified 100 ms pointer-settle sleep and redundant window walks have been
+removed during performance validation; explicit event
+position avoids racing asynchronous pointer movement. There is no click or
+keyboard-focus change.
+After a real-wheel replay exposed false centre-hit refusals in Slack, the user
+approved ordinary wheel semantics without per-scroll AX hit tests. App/window/
+root ownership checks remain; non-menu overlays can receive the event.
+The user approved this mechanism and requested visual direction semantics.
+The macOS natural-scroll preference determines the wheel-action sign; read
+failures report and refuse input rather than guess. Successful reads are cached
+until section hints are next shown/refreshed.
+
+`number <section>` hands a fresh-root callback to the production application
+session through Talon actions, not a Python import of its registration module.
+Direct entry-point imports proved to retain a different module/session instance
+across live reload; the action boundary removes that coupling. The collector,
+row anchors, selection, menu transitions and Back remain shared. Before scoped
+selection, the cached root, selected target's live signature/state/ancestry,
+viewport overlap and current window are checked without recollecting the section.
+Stale targets refresh instead of pressing; unrelated sibling changes do not
+block unchanged targets. Pending refreshes refuse selection.
+Scroll invalidation hides old numbers and
+requests the existing session's refresh. Initially empty scopes can retry within
+the standard two-second startup window, then stop visibly without window fallback.
+
+**Mail-row investigation:** Outlook exposes rows in the normal Message List
+AXTable's `AXChildren`/`AXRows`, and visible ones via `AXVisibleRows`: 992 total,
+12 visible in the measured view. AXRow itself lacked AXPress, but its direct
+AXCell child had AXPress. The shared row-content filter now accepts that cell
+without duplicating a pressable row. No custom Archive actions, AXSelected writes,
+clicks or message presses were used. A separate tree was not needed.
+
+Native table collection at a section root or its immediate children queries
+visible rows and the header, retaining configured depth budgets. A long raw
+query of the mail subtree found 16 viewport-overlapping controls; the scoped
+collector found 15. The extra raw result was a cell at y=124..188 with its centre
+above the pane's y=167 boundary, absent from AXVisibleRows and under the fixed
+header. Exact equivalence to the old overlap-only policy is therefore not
+claimed; native visible-row membership deliberately excludes that covered row
+while retaining a partially visible bottom row.
+
+**Validation:** 514 full-tree tests pass, with Ruff and Talon lint passing.
+Tests cover focus coalescing, hide/replacement cancellation, late-result
+suppression, covered/menu/failed-pointer scroll refusal, both natural-scroll
+preferences and preference failures, visible-row queries, nested AXCells,
+depth/disabled filtering, changed scopes/targets/windows, startup retry and
+return to full-window scope.
+
+Live action replay verified Slack/Outlook focus refresh, both rendering modes,
+hide without resurrection, native label replacement and production-number
+ownership. Current scopes numbered 36 Slack controls, 12 Outlook cells plus
+three headers, and 26 message links. Local cropped screenshots confirmed Slack
+and Outlook mail scrolling; AX row-frame measurements alone did not reliably
+reflect visual scrolling, so those were not treated as proof. Reading-pane
+scrollbar movement verified visual down and inverse restoration. Scrolling
+either Outlook pane left the other pane's screenshot byte-identical. Input
+effects were measured after native action completion, not just wheel dispatch.
+Private captures/probes are removed, not fixtures.
+
+Other layouts, localization, custom wheel overrides, horizontal scrolling,
+safe-content mail activation and broader WH6 equivalence remain validation
+work. Keyboard pane focus remains unimplemented.

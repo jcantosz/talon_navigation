@@ -5,6 +5,7 @@ from math import isfinite
 
 from talon import axquery, settings, ui
 
+from ..ax.surfaces import contains
 from ..ax.surfaces import focused_surfaces as focused_surfaces
 from ..lib.labels import usable_frame
 from ..lib.roles import CONTROL_ROLES
@@ -35,7 +36,7 @@ def _is_row_item(element):
     role = element.get("AXRole")
     if role == "AXRow":
         return True
-    if role != "AXGroup":
+    if role not in ("AXGroup", "AXCell"):
         return False
     for _ in range(ROW_ITEM_LEVELS):
         element = element.get("AXParent")
@@ -248,6 +249,45 @@ def collect_deferred(areas, controls):
     return combined[len(controls) :]
 
 
+def collect_section(root):
+    """Query actionable descendants of a real section, clipped to its viewport."""
+    if not usable_frame(root):
+        raise RuntimeError("The section has no usable viewport.")
+    controls = []
+    budget = _query_budget()
+    clip = root.get("AXFrame")
+    children = (
+        [] if root.get("AXRole") == "AXTable" else list(root.get("AXChildren") or ())
+    )
+    # Native tables can expose thousands of offscreen rows before a query reaches
+    # the visible ones. Use their authoritative visible-row relationship instead.
+    tables = [child for child in children if child.get("AXRole") == "AXTable"]
+    roots = children if tables else [root]
+    for candidate in roots:
+        rows = (
+            candidate.get("AXVisibleRows")
+            if candidate.get("AXRole") == "AXTable"
+            else None
+        )
+        origins = list(rows) if rows is not None else [candidate]
+        if rows is not None:
+            header = candidate.get("AXHeader")
+            if header is not None:
+                origins.append(header)
+        depth = int(bool(tables)) + int(rows is not None)
+        max_depth, timeout = budget
+        if max_depth >= 0 and depth > max_depth:
+            continue
+        remaining = max_depth - depth if max_depth >= 0 else -1
+        for origin in origins:
+            if rows is None or _overlaps(origin.get("AXFrame"), clip):
+                if "AXPress" in origin.actions and origin.get("AXPosition") is not None:
+                    _add_control(origin, controls)
+                if remaining != 0:
+                    _query_controls(origin, controls, (remaining, timeout), clip)
+    return controls
+
+
 def _web_area(element, cache):
     # Talon elements are unhashable; cache ancestors by equality per collection.
     trail = []
@@ -302,3 +342,18 @@ def signature(elements):
         )
         for element in elements
     )
+
+
+def section_target_valid(root, target, expected):
+    """Validate one displayed control, not the entire section's control set."""
+    if (
+        target.get("AXEnabled") is False
+        or target.get("AXHidden") is True
+        or "AXPress" not in target.actions
+        or not usable_frame(root)
+        or not usable_frame(target)
+        or signature([target])[0] != expected
+        or not contains(root, target)
+    ):
+        return False
+    return _overlaps(target.get("AXFrame"), root.get("AXFrame"))

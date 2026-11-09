@@ -158,6 +158,7 @@ class FakeTalon:
             select=lambda label: self.dispatch_labels("select", label),
         )
         ui = types.SimpleNamespace(
+            Element=Element,
             UIErr=UIErr,
             ActionFailed=ActionFailed,
             active_app=lambda: self.active_app,

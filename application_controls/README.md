@@ -4,6 +4,28 @@ Pane labelling is a separate accepted feature in
 [window_hints/](../window_hints/README.md), keeping its profiles, commands and
 label proxies out of this application-control directory.
 
+Window sections can start this same session with a section resolver rather
+than a full-window query. The resolver is called again on refresh and before
+selection, using retained current-window section references rather than pane
+discovery. Startup collects controls once. Selection checks only the chosen
+target's signature, enabled/hidden/pressable state, ancestry and viewport overlap;
+it never recollects the complete section. Changed/recreated/detached targets
+refuse the old number and request fresh labels. Pending refresh and focus changes
+refuse activation; unrelated sibling changes alone do not invalidate an unchanged
+target. General non-menu occlusion is not guaranteed by these AX checks. Menu and
+Back handling remain shared, and **show application numbers** returns to the
+full window. See [section commands](../window_hints/README.md#refresh-and-section-actions).
+An initially empty section retries within the existing two-second startup
+window, never substitutes a full-window query, and reports persistent emptiness.
+An established section session becoming empty still stops immediately.
+
+Section collection clips to the real AX viewport. Native tables at the root or
+directly below it query `AXVisibleRows` and their header, preserving query-depth
+budgets without enumerating every offscreen row. Pressable AXCells inside
+non-pressable rows now share the existing row-content filtering; a pressable row
+does not acquire duplicate cell labels. Full-window collection otherwise
+retains its query and visibility settings.
+
 The application-number collector labels supported pressable controls in the
 focused window. When macOS exposes an active menu, that menu replaces the
 window as the numbered surface. While a session is active, a lightweight

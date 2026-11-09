@@ -1,0 +1,12 @@
+{
+  "max_depth": 35,
+  "panes": [
+    { "name": "search", "match": { "role": "AXButton", "classes": ["p-top_nav__search"] } },
+    { "name": "sidebar", "match": { "role": "AXTabGroup", "classes": ["p-tab_rail__tab_menu"] } },
+    { "name": "manage", "match": { "role": "AXToolbar", "classes": ["p-control_strip"] } },
+    { "name": "channels", "match": { "role": "AXOutline", "description": "Channels and direct messages" } },
+    { "name": "messages", "match": { "role": "AXGroup", "classes": ["p-message_pane"] } },
+    { "name": "thread", "match": { "role": "AXGroup", "classes": ["p-threads_flexpane"] } },
+    { "name": "compose", "match": { "role": "AXTextArea", "classes": ["ql-editor"] } }
+  ]
+}

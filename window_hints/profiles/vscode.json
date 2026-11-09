@@ -1,14 +1,14 @@
 {
-  "tiles": true,
   "max_depth": 40,
   "scope": { "ancestor": { "classes": ["split-view-view", "visible"] } },
   "panes": [
-    { "name": "title bar", "match": { "classes": ["titlebar-container"] } },
-    { "name": "activity bar", "match": { "class_suffix": "view-bar-icon" } },
-    { "name": "sidebar", "match": { "classes": ["composite", "viewlet"] } },
-    { "name": "editor", "match": { "dom_id": "workbench.parts.editor" } },
+    { "name": "search", "match": { "role": "AXButton", "description": "Open Quick Access" }, "scope": "self" },
+    { "name": "sidebar", "match": { "role": "AXTabGroup", "description": "Active View Switcher" }, "scope": { "ancestor": { "classes": ["monaco-action-bar", "vertical"] } } },
+    { "name": "manage", "match": { "role": "AXToolbar", "description": "Manage" }, "scope": "self" },
+    { "name": "files", "match": { "classes": ["composite", "viewlet"] } },
+    { "name": "tabs", "match": { "classes": ["tabs-container"] }, "scope": "self" },
+    { "name": "editor", "match": { "classes": ["editor-instance"] }, "scope": "self" },
     { "name": "panel", "match": { "classes": ["composite", "panel"] } },
-    { "name": "auxiliary bar", "match": { "classes": ["composite", "auxiliarybar"] } },
-    { "name": "status bar", "match": { "dom_id": "workbench.parts.statusbar" } }
+    { "name": "chat", "match": { "classes": ["composite", "auxiliarybar"] } }
   ]
 }

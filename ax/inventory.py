@@ -51,7 +51,7 @@ def _action_names(element):
     return tuple(sorted(str(action) for action in actions))
 
 
-def collect(root, ui_error, limit=10000):
+def collect(root, ui_error, limit=10000, max_depth=None, stop_roles=()):
     pending = [(root, ())]
     seen = set()
     nodes = []
@@ -80,7 +80,12 @@ def collect(root, ui_error, limit=10000):
                 attributes=attributes,
                 actions=actions,
             )
-            children = tuple(element.get("AXChildren") or ())
+            children = (
+                ()
+                if (max_depth is not None and len(path) >= max_depth)
+                or node.role in stop_roles
+                else tuple(element.get("AXChildren") or ())
+            )
         except ui_error as error:
             errors.append(f"{format_path(path)}: {type(error).__name__}: {error}")
             continue

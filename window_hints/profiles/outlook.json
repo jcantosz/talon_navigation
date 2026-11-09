@@ -1,0 +1,10 @@
+{
+  "max_depth": 7,
+  "panes": [
+    { "name": "search", "match": { "role": "AXTextField", "identifier": "Search Bar" } },
+    { "name": "sidebar", "match": { "role": "AXButton", "help": "Mail" }, "scope": { "ancestor": { "role": "AXGroup" } } },
+    { "name": "inboxes", "match": { "role": "AXOutline" }, "scope": { "ancestor": { "role": "AXScrollArea" } } },
+    { "name": "mail", "match": { "role": "AXTable", "description": "Message List" }, "scope": { "ancestor": { "role": "AXGroup", "description": "Message List" } } },
+    { "name": "message", "match": { "role": "AXWebArea" }, "scope": { "ancestor": { "role": "AXScrollArea" } } }
+  ]
+}

@@ -42,12 +42,14 @@ def _may_expand(element):
 
 
 class ApplicationLabelSession(LabelSession):
-    def __init__(self, owner, context, session_context, stop_session):
+    def __init__(self, owner, context, session_context, stop_session, scope=None):
         # Back suspends the visible-label grammar while retaining session ownership.
         super().__init__(context, "user.application_labels_active", False)
         self.session_context = session_context
         self._stop_session = stop_session
         self.owner = owner
+        self.scope = scope
+        self.scope_root = None
         self.targets = []
         self.labelled = []
         self.window = None
@@ -338,7 +340,19 @@ class ApplicationLabelSession(LabelSession):
             self._cancel_deferred()
             window = self.owner.element.get("AXFocusedWindow")
             menu = self._active_menu()
-            targets, deferred = controls.collect(self.owner, menu, window)
+            if self.scope is not None and menu is None:
+                root = self.scope()
+                targets, deferred = controls.collect_section(root), []
+                self.scope_root = root
+                active = ui.active_app()
+                if (
+                    active is None
+                    or active.pid != self.owner.pid
+                    or self.owner.element.get("AXFocusedWindow") != window
+                ):
+                    raise RuntimeError("Focus changed while querying the section.")
+            else:
+                targets, deferred = controls.collect(self.owner, menu, window)
             if self.stopped:
                 return
             if self._active_menu() != menu:
@@ -397,6 +411,17 @@ class ApplicationLabelSession(LabelSession):
         ):
             return
         if not targets:
+            if (
+                self.scope is not None
+                and menu is None
+                and not self.targets
+                and time.monotonic() < self.start_deadline
+            ):
+                if self.start_retry_job is None:
+                    self.start_retry_job = cron.after(
+                        SETTLE_INTERVAL, self._retry_start
+                    )
+                return
             if menu is not None:
                 if menu != self.empty_menu:
                     self.empty_menu = menu
@@ -456,7 +481,11 @@ class ApplicationLabelSession(LabelSession):
             actions.labels.hide()
             app.notify("Application control labels", "The active application changed.")
             return
-        if self.refreshing or self.selecting:
+        if (
+            self.refreshing
+            or self.selecting
+            or (self.scope is not None and self.refresh_job is not None)
+        ):
             app.notify(
                 "Application control labels",
                 "Wait for the numbers to finish refreshing.",
@@ -492,6 +521,30 @@ class ApplicationLabelSession(LabelSession):
                     "The focused window changed. Say 'show application numbers' again.",
                 )
                 return
+            if self.scope is not None and self.menu is None:
+                root = self.scope()
+                valid = root == self.scope_root and controls.section_target_valid(
+                    root, target, self.signature[label - 1]
+                )
+                active = ui.active_app()
+                if (
+                    active is None
+                    or active.pid != self.owner.pid
+                    or self.owner.element.get("AXFocusedWindow") != self.window
+                ):
+                    actions.labels.hide()
+                    app.notify(
+                        "Application control labels",
+                        "Focus changed while checking the section. Show numbers again.",
+                    )
+                    return
+                if not valid:
+                    self._schedule_menu_refresh()
+                    app.notify(
+                        "Application control labels",
+                        "The section changed. Choose a refreshed number.",
+                    )
+                    return
             if (
                 self.menu is None
                 and settings.get("user.accessibility_defer_web_areas")

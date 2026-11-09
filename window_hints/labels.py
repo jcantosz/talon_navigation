@@ -107,13 +107,14 @@ class PaneLabel(ui.Element):
         return self._original.perform(action)
 
 
-def show(panes):
-    """Try centred names; explicitly fall back to the real AX groups."""
+def show(panes, names=True):
+    """Try centred labels; explicitly fall back to the real AX groups."""
+    render = actions.labels.show_names if names else actions.labels.show
     try:
         targets = [PaneLabel(pane.ref, pane.name) for pane in panes]
-        actions.labels.show_names(targets)
+        render(targets)
     except (AttributeError, TypeError, ValueError, RuntimeError, ui.UIErr):
         logging.exception("Window hints: centred labels failed; using original groups")
         app.notify(TITLE, "Centred labels failed; using original group labels.")
         actions.labels.hide()
-        actions.labels.show_names([pane.ref for pane in panes])
+        render([pane.ref for pane in panes])

@@ -15,7 +15,8 @@ Profile schema (JSON):
       ]
     }
 
-A matcher M has any of: role, subrole, dom_id, title, description (exact),
+A matcher M has any of: role, subrole, dom_id, identifier, help, title,
+description (exact),
 classes (all must be present), class_suffix (some class ends with it). Every
 key present must match. Depth is the node's distance from the window root.
 """
@@ -23,6 +24,7 @@ key present must match. Depth is the node's distance from the window root.
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from .core import Rect, intersect
@@ -35,8 +37,10 @@ MATCH_KEYS = {
     "description",
     "classes",
     "class_suffix",
+    "identifier",
+    "help",
 }
-PROFILE_KEYS = {"tiles", "max_depth", "scope", "panes", "labels"}
+PROFILE_KEYS = {"tiles", "max_depth", "scope", "panes"}
 PANE_KEYS = {"name", "match", "scope", "max_depth"}
 NAME_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 TOLERANCE = 1.5
@@ -59,6 +63,8 @@ class Node:
     title: str = ""
     description: str = ""
     ref: object = field(default=None, compare=False, repr=False)
+    identifier: str = ""
+    help: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,8 +127,6 @@ def validate(profile):
     if "scope" in profile:
         _validate_scope(profile["scope"], "profile")
     _validate_depth(profile.get("max_depth"), "profile")
-    if profile.get("labels", "numbers") not in ("numbers", "names"):
-        raise ProfileError("labels must be 'numbers' or 'names'")
     if not isinstance(profile.get("tiles", False), bool):
         raise ProfileError("tiles must be true or false")
     names = set()
@@ -159,7 +163,34 @@ def load_profile(name, directory=PROFILE_DIRECTORY):
     return validate(data)
 
 
+@lru_cache(maxsize=1)
+def application_mapping(value):
+    """Validate bundle=profile entries once per configured mapping."""
+    mapping = {}
+    if not value.strip():
+        return mapping
+    for entry in value.split(","):
+        bundle, separator, profile = (part.strip() for part in entry.partition("="))
+        if (
+            not separator
+            or not bundle
+            or any(character.isspace() for character in bundle)
+            or not NAME_PATTERN.fullmatch(profile)
+        ):
+            raise ProfileError(f"invalid bundle=profile mapping entry {entry!r}")
+        if bundle in mapping:
+            raise ProfileError(f"duplicate application bundle {bundle!r}")
+        if not (PROFILE_DIRECTORY / f"{profile}.json").is_file():
+            raise ProfileError(f"mapped profile {profile!r} does not exist")
+        mapping[bundle] = profile
+    return mapping
+
+
 def matches(node, match):
+    if "identifier" in match and node.identifier != match["identifier"]:
+        return False
+    if "help" in match and node.help != match["help"]:
+        return False
     if "role" in match and node.role != match["role"]:
         return False
     if "subrole" in match and node.subrole != match["subrole"]:

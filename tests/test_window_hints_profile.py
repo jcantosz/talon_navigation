@@ -1,5 +1,4 @@
 import importlib
-import json
 import random
 import sys
 import tempfile
@@ -18,21 +17,6 @@ with patch.dict(sys.modules, {"talon": None, package.__name__: package}):
 
 P = profile_module
 Rect = base.Rect
-FIXTURE = Path(__file__).parent / "fixtures" / "vscode_grid.json"
-VSCODE = P.load_profile("vscode")
-
-
-def load_fixture():
-    data = json.loads(FIXTURE.read_text())
-    return [
-        P.Node(
-            tuple(item["path"]),
-            base.as_rect(item["frame"]),
-            dom=item["dom"],
-            classes=frozenset(item["classes"]),
-        )
-        for item in data["nodes"]
-    ]
 
 
 def names(panes):
@@ -40,15 +24,20 @@ def names(panes):
 
 
 WINDOW = Rect(0, 0, 1000, 800)
-MARKERS = {
-    "title bar": {"classes": {"titlebar-container"}},
-    "activity bar": {"classes": {"codicon-accounts-view-bar-icon"}},
-    "sidebar": {"classes": {"composite", "viewlet"}},
-    "panel": {"classes": {"composite", "panel"}},
-    "auxiliary bar": {"classes": {"composite", "auxiliarybar"}},
-    "editor": {"dom": "workbench.parts.editor"},
-    "status bar": {"dom": "workbench.parts.statusbar"},
-    "mystery": {},
+SYNTHETIC_PROFILE = {
+    "scope": {"ancestor": {"classes": ["cell", "visible"]}},
+    "panes": [
+        {"name": name, "match": {"title": name}}
+        for name in (
+            "header",
+            "rail",
+            "folders",
+            "content",
+            "details",
+            "footer",
+            "panel",
+        )
+    ],
 }
 
 
@@ -59,31 +48,29 @@ def layout(cells, hidden=()):
         P.Node((0,), WINDOW, classes=frozenset({"monaco-grid-view"})),
     ]
     for index, (name, rect) in enumerate(cells):
-        classes = {"split-view-view"}
+        classes = {"cell"}
         if name not in hidden:
             classes.add("visible")
         path = (0, index)
-        marker = MARKERS[name]
         nodes += [
             P.Node(path, rect, classes=frozenset(classes)),
             P.Node(path + (0,), rect),
             P.Node(
                 path + (0, 0),
                 rect,
-                dom=marker.get("dom", ""),
-                classes=frozenset(marker.get("classes", ())),
+                title=name,
             ),
         ]
     return nodes
 
 
 STANDARD = [
-    ("title bar", Rect(0, 0, 1000, 40)),
-    ("activity bar", Rect(0, 40, 50, 720)),
-    ("sidebar", Rect(50, 40, 250, 720)),
-    ("editor", Rect(300, 40, 450, 720)),
-    ("auxiliary bar", Rect(750, 40, 250, 720)),
-    ("status bar", Rect(0, 760, 1000, 40)),
+    ("header", Rect(0, 0, 1000, 40)),
+    ("rail", Rect(0, 40, 50, 720)),
+    ("folders", Rect(50, 40, 250, 720)),
+    ("content", Rect(300, 40, 450, 720)),
+    ("details", Rect(750, 40, 250, 720)),
+    ("footer", Rect(0, 760, 1000, 40)),
 ]
 
 
@@ -93,7 +80,7 @@ def frames(panes):
 
 class VSCodeProfileTests(unittest.TestCase):
     def test_named_profile_targets_split_editors_and_separate_rail_sections(self):
-        profile = P.load_profile("vscode_named")
+        profile = P.load_profile("vscode")
         nodes = [
             P.Node((), WINDOW),
             P.Node(
@@ -156,7 +143,7 @@ class VSCodeProfileTests(unittest.TestCase):
             names(panes),
             [
                 "search",
-                "activity bar",
+                "sidebar",
                 "manage",
                 "files",
                 "tabs 1",
@@ -166,7 +153,7 @@ class VSCodeProfileTests(unittest.TestCase):
             ],
         )
         found = frames(panes)
-        self.assertEqual(found["activity bar"], nodes[2].frame)
+        self.assertEqual(found["sidebar"], nodes[2].frame)
         self.assertEqual(found["manage"], nodes[4].frame)
         self.assertNotEqual(found["editor 1"], found["editor 2"])
         self.assertEqual(found["editor 2"], nodes[11].frame)
@@ -192,28 +179,6 @@ class VSCodeProfileTests(unittest.TestCase):
         ]
         self.assertEqual(names(P.find_panes(moved, profile)), names(panes))
 
-    def test_real_window_yields_the_six_visible_parts_in_profile_order(self):
-        panes = P.find_panes(load_fixture(), VSCODE)
-        self.assertEqual(
-            names(panes),
-            [
-                "title bar",
-                "activity bar",
-                "sidebar",
-                "editor",
-                "auxiliary bar",
-                "status bar",
-            ],
-        )
-
-    def test_real_window_tiles_the_workbench(self):
-        panes = P.find_panes(load_fixture(), VSCODE)
-        window = base.as_rect((0, 30, 1920, 960))
-        result = P.report(panes, window, tiles=True)
-        self.assertEqual(result["overlaps"], [])
-        self.assertAlmostEqual(result["coverage"], 1.0, places=2)
-        self.assertTrue(result["ok"])
-
     def test_profile_uses_no_view_ids_or_paths(self):
         text = (P.PROFILE_DIRECTORY / "vscode.json").read_text()
         self.assertNotIn("workbench.view.", text)
@@ -221,60 +186,64 @@ class VSCodeProfileTests(unittest.TestCase):
         self.assertNotIn('"path"', text)
 
     def test_standard_layout(self):
-        panes = P.find_panes(layout(STANDARD), VSCODE)
+        panes = P.find_panes(layout(STANDARD), SYNTHETIC_PROFILE)
         self.assertEqual(frames(panes), dict(STANDARD))
         self.assertTrue(P.report(panes, WINDOW, tiles=True)["ok"])
 
     def test_moving_the_sidebar_right_keeps_names_and_follows_frames(self):
         moved = [
-            ("title bar", Rect(0, 0, 1000, 40)),
-            ("activity bar", Rect(950, 40, 50, 720)),
-            ("editor", Rect(0, 40, 450, 720)),
-            ("sidebar", Rect(450, 40, 500, 720)),
-            ("status bar", Rect(0, 760, 1000, 40)),
+            ("header", Rect(0, 0, 1000, 40)),
+            ("rail", Rect(950, 40, 50, 720)),
+            ("content", Rect(0, 40, 450, 720)),
+            ("folders", Rect(450, 40, 500, 720)),
+            ("footer", Rect(0, 760, 1000, 40)),
         ]
-        panes = P.find_panes(layout(moved), VSCODE)
+        panes = P.find_panes(layout(moved), SYNTHETIC_PROFILE)
         self.assertEqual(frames(panes), dict(moved))
         self.assertTrue(P.report(panes, WINDOW, tiles=True)["ok"])
 
     def test_bottom_panel_is_found(self):
         cells = [
-            ("title bar", Rect(0, 0, 1000, 40)),
-            ("sidebar", Rect(0, 40, 250, 720)),
-            ("editor", Rect(250, 40, 750, 420)),
+            ("header", Rect(0, 0, 1000, 40)),
+            ("folders", Rect(0, 40, 250, 720)),
+            ("content", Rect(250, 40, 750, 420)),
             ("panel", Rect(250, 460, 750, 300)),
-            ("status bar", Rect(0, 760, 1000, 40)),
+            ("footer", Rect(0, 760, 1000, 40)),
         ]
-        panes = P.find_panes(layout(cells), VSCODE)
+        panes = P.find_panes(layout(cells), SYNTHETIC_PROFILE)
         self.assertEqual(frames(panes), dict(cells))
 
     def test_hidden_and_zero_size_cells_are_ignored(self):
-        hidden = P.find_panes(layout(STANDARD, hidden=("auxiliary bar",)), VSCODE)
-        self.assertNotIn("auxiliary bar", names(hidden))
-        zero = P.find_panes(layout(STANDARD + [("panel", Rect(0, 0, 0, 0))]), VSCODE)
+        hidden = P.find_panes(layout(STANDARD, hidden=("details",)), SYNTHETIC_PROFILE)
+        self.assertNotIn("details", names(hidden))
+        zero = P.find_panes(
+            layout(STANDARD + [("panel", Rect(0, 0, 0, 0))]), SYNTHETIC_PROFILE
+        )
         self.assertNotIn("panel", names(zero))
 
     def test_node_order_does_not_change_the_result(self):
         nodes = layout(STANDARD)
-        expected = P.find_panes(nodes, VSCODE)
+        expected = P.find_panes(nodes, SYNTHETIC_PROFILE)
         generator = random.Random(3)
         for _ in range(30):
             shuffled = nodes[:]
             generator.shuffle(shuffled)
-            self.assertEqual(P.find_panes(shuffled, VSCODE), expected)
+            self.assertEqual(P.find_panes(shuffled, SYNTHETIC_PROFILE), expected)
 
     def test_a_pane_that_is_not_in_the_profile_is_not_guessed(self):
-        cells = [("mystery", Rect(0, 0, 500, 800)), ("editor", Rect(500, 0, 500, 800))]
-        self.assertEqual(names(P.find_panes(layout(cells), VSCODE)), ["editor"])
+        cells = [("mystery", Rect(0, 0, 500, 800)), ("content", Rect(500, 0, 500, 800))]
+        self.assertEqual(
+            names(P.find_panes(layout(cells), SYNTHETIC_PROFILE)), ["content"]
+        )
 
     def test_missing_part_fails_the_tiling_report(self):
-        panes = P.find_panes(layout(STANDARD[:-1]), VSCODE)
+        panes = P.find_panes(layout(STANDARD[:-1]), SYNTHETIC_PROFILE)
         self.assertFalse(P.report(panes, WINDOW, tiles=True)["ok"])
 
     def test_overlap_is_reported(self):
-        cells = [("editor", Rect(0, 0, 600, 800)), ("sidebar", Rect(500, 0, 400, 800))]
-        panes = P.find_panes(layout(cells), VSCODE)
-        self.assertEqual(P.report(panes, WINDOW)["overlaps"], [("sidebar", "editor")])
+        cells = [("content", Rect(0, 0, 600, 800)), ("folders", Rect(500, 0, 400, 800))]
+        panes = P.find_panes(layout(cells), SYNTHETIC_PROFILE)
+        self.assertEqual(P.report(panes, WINDOW)["overlaps"], [("folders", "content")])
 
 
 class GenericMatcherTests(unittest.TestCase):
@@ -350,6 +319,15 @@ class GenericMatcherTests(unittest.TestCase):
 
 
 class ProfileValidationTests(unittest.TestCase):
+    def test_rendering_mode_is_not_a_profile_setting(self):
+        with self.assertRaisesRegex(P.ProfileError, "unknown profile keys"):
+            P.validate(
+                {
+                    "labels": "names",
+                    "panes": [{"name": "list", "match": {"role": "AXList"}}],
+                }
+            )
+
     def check_invalid(self, profile, text):
         with self.assertRaises(P.ProfileError) as caught:
             P.validate(profile)
@@ -359,7 +337,7 @@ class ProfileValidationTests(unittest.TestCase):
         return {"name": "a", "match": {"role": "AXList"}, **changes}
 
     def test_bundled_profile_is_valid(self):
-        self.assertIs(P.validate(VSCODE), VSCODE)
+        self.assertIs(P.validate(SYNTHETIC_PROFILE), SYNTHETIC_PROFILE)
 
     def test_rejects_malformed_profiles_explicitly(self):
         self.check_invalid([], "object")

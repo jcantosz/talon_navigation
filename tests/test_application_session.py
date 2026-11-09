@@ -81,6 +81,8 @@ class ApplicationSessionTests(ApplicationTestCase):
             {name for name, value in vars(self.actions).items() if callable(value)},
             {
                 "accessibility_prepare_active_app",
+                "accessibility_show_section_numbers",
+                "accessibility_invalidate_numbers_for_scroll",
                 "accessibility_show_application_numbers",
                 "accessibility_refresh_application_numbers",
                 "accessibility_application_numbers_back",
